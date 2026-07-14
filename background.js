@@ -1,13 +1,11 @@
 /**
  * Service worker: chrome.alarms + notifications.
- * Extension origin storage (localStorage on the new-tab page and
- * chrome.storage) is automatically wiped by Chrome on uninstall.
+ * Extension data is wiped by Chrome on uninstall.
  */
 
 const STORAGE_KEY = "focusClockData";
 
 chrome.runtime.onInstalled.addListener(() => {
-  // Ensure no leftover chrome.storage keys from previous installs.
   chrome.storage.local.get(null, (items) => {
     const keys = Object.keys(items || {}).filter((k) => k.startsWith("focusClock"));
     if (keys.length) chrome.storage.local.remove(keys);
@@ -21,8 +19,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   try {
     const result = await chrome.storage.local.get(STORAGE_KEY);
     const data = result[STORAGE_KEY] || {};
-
     let changed = false;
+
     if (alarm.name.startsWith("alarm:") && Array.isArray(data.alarms)) {
       const id = alarm.name.slice(6);
       data.alarms = data.alarms.map((a) => {
@@ -35,14 +33,18 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         return a;
       });
     }
-    if (alarm.name === "timer:active" && data.timer) {
-      title = "Timer";
-      message = `Timer "${data.timer.label || "Timer"}" finished.`;
-      if (data.timer.status === "running") {
-        data.timer.status = "finished";
-        data.timer.remainingMs = 0;
-        changed = true;
-      }
+
+    if (alarm.name.startsWith("timer:") && Array.isArray(data.timers)) {
+      const id = alarm.name.slice(6);
+      data.timers = data.timers.map((t) => {
+        if (t.id === id && t.status === "running") {
+          changed = true;
+          title = "Timer";
+          message = `Timer "${t.label || "Timer"}" finished.`;
+          return { ...t, status: "finished", remainingMs: 0 };
+        }
+        return t;
+      });
     }
 
     chrome.notifications.create(`notify-${alarm.name}-${Date.now()}`, {
@@ -95,19 +97,20 @@ async function syncChromeAlarms(payload) {
   );
 
   const now = Date.now();
+
   if (payload?.alarms) {
     for (const a of payload.alarms) {
       if (a.status !== "active" || !a.id) continue;
       const when = new Date(a.at).getTime();
-      if (when > now) {
-        chrome.alarms.create(`alarm:${a.id}`, { when });
-      }
+      if (when > now) chrome.alarms.create(`alarm:${a.id}`, { when });
     }
   }
-  if (payload?.timer?.status === "running" && payload.timer.endsAt) {
-    const when = new Date(payload.timer.endsAt).getTime();
-    if (when > now) {
-      chrome.alarms.create("timer:active", { when });
+
+  if (payload?.timers) {
+    for (const t of payload.timers) {
+      if (t.status !== "running" || !t.id || !t.endsAt) continue;
+      const when = new Date(t.endsAt).getTime();
+      if (when > now) chrome.alarms.create(`timer:${t.id}`, { when });
     }
   }
 }

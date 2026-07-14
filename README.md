@@ -4,16 +4,14 @@ Replace Chrome’s new tab with **Alarm**, **Timer**, and **Stopwatch**, plus th
 
 ## Features
 
-- **Alarm** — set a label, date, and time; see countdown on the new tab; desktop notification when it fires
-- **Timer** — two modes:
-  - **Set duration** (hours / minutes / seconds)
-  - **Set end date & time**
-- **Stopwatch** — start / pause / resume / lap / reset
-- **Status cards** — live Alarm, Timer, and Stopwatch summary at the top of the new tab
+- **New tab = status only** — large clock plus live Alarm / Timer / Stopwatch cards
+- **Settings** — gear button to add and manage items (not on the home view)
+- **Multi alarm** — as many as you want; date + time; notifications when they fire
+- **Multi timer** — duration **or** end date/time; pause / resume each one
+- **Multi stopwatch** — add several; start / pause / lap / reset / delete
 - **Theme** — Light / Dark / **System** (default)
 - **Background** — solid color or custom image
-- **Persistence** — `localStorage` on the extension new-tab page (mirrored to `chrome.storage` for notifications)
-- **Uninstall cleanup** — Chrome automatically deletes all extension data (including `localStorage` and `chrome.storage`) when you remove the extension
+- **Persistence** — `localStorage` (cleared automatically on uninstall)
 
 ## Install (developer mode)
 
@@ -29,9 +27,9 @@ Allow notifications when Chrome prompts you so alarms and timers can alert you e
 
 | Control | Where |
 |--------|--------|
-| Theme | Top-right monitor / sun / moon button → System, Light, or Dark |
+| Theme | Top-right (monitor / sun / moon) → System, Light, or Dark |
 | Background | Top-right image button → color or upload |
-| Alarm / Timer / Stopwatch | Tabs below the status cards |
+| Add / manage Alarm, Timer, Stopwatch | Top-right **gear** → Settings |
 
 ## Project layout
 
