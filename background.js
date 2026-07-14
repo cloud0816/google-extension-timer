@@ -1,8 +1,3 @@
-/**
- * Service worker: chrome.alarms + notifications.
- * Extension data is wiped by Chrome on uninstall.
- */
-
 const STORAGE_KEY = "focusClockData";
 
 chrome.runtime.onInstalled.addListener(() => {
