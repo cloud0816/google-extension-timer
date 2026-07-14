@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Focus Clock — Alarm, Timer & Stopwatch",
+  "version": "1.0.0",
+  "description": "Set alarms, timers, and a stopwatch on your new tab. Customize theme and background.",
+  "permissions": ["alarms", "notifications", "storage"],
+  "chrome_url_overrides": {
+    "newtab": "newtab/index.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Focus Clock",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:;"
+  }
+}
