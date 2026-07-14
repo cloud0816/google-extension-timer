@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>New Tab</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-layer" id="bgLayer" aria-hidden="true"></div>
+    <div class="ambient" aria-hidden="true"></div>
+
+    <header class="top-bar">
+      <div class="brand">Focus Clock</div>
+      <div class="top-actions">
+        <button type="button" class="icon-btn" id="themeBtn" title="Theme" aria-label="Change theme">
+          <svg class="icon theme-icon-system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+            <rect x="3" y="4" width="18" height="14" rx="2" />
+            <path d="M8 20h8" />
+          </svg>
+          <svg class="icon theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" hidden>
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+          </svg>
+          <svg class="icon theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" hidden>
+            <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5z" />
+          </svg>
+        </button>
+        <button type="button" class="icon-btn" id="bgBtn" title="Background" aria-label="Change background">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+            <rect x="3" y="5" width="18" height="14" rx="2" />
+            <circle cx="8.5" cy="10" r="1.5" />
+            <path d="m21 15-4.5-4.5L9 18" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="stage">
+      <section class="hero">
+        <time class="wall-clock" id="wallClock" datetime="">00:00</time>
+        <p class="wall-date" id="wallDate"></p>
+      </section>
+
+      <section class="status-row" id="statusRow" aria-label="Active timers">
+        <!-- status cards injected by JS -->
+      </section>
+
+      <nav class="tool-tabs" role="tablist">
+        <button type="button" class="tab active" role="tab" data-panel="alarm" aria-selected="true">Alarm</button>
+        <button type="button" class="tab" role="tab" data-panel="timer" aria-selected="false">Timer</button>
+        <button type="button" class="tab" role="tab" data-panel="stopwatch" aria-selected="false">Stopwatch</button>
+      </nav>
+
+      <section class="panels">
+        <!-- ALARM -->
+        <div class="panel active" id="panel-alarm" role="tabpanel">
+          <form class="form" id="alarmForm">
+            <div class="field-row">
+              <label class="field">
+                <span>Label</span>
+                <input type="text" id="alarmLabel" placeholder="Wake up" maxlength="40" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>Date</span>
+                <input type="date" id="alarmDate" required />
+              </label>
+              <label class="field">
+                <span>Time</span>
+                <input type="time" id="alarmTime" required />
+              </label>
+            </div>
+            <button type="submit" class="btn primary">Set alarm</button>
+          </form>
+          <ul class="list" id="alarmList"></ul>
+        </div>
+
+        <!-- TIMER -->
+        <div class="panel" id="panel-timer" role="tabpanel" hidden>
+          <div class="method-toggle" role="group" aria-label="Timer method">
+            <button type="button" class="chip active" data-method="duration">Set duration</button>
+            <button type="button" class="chip" data-method="end">Set end date & time</button>
+          </div>
+
+          <form class="form" id="timerDurationForm">
+            <div class="field-row compact">
+              <label class="field">
+                <span>Hours</span>
+                <input type="number" id="timerHours" min="0" max="99" value="0" />
+              </label>
+              <label class="field">
+                <span>Minutes</span>
+                <input type="number" id="timerMinutes" min="0" max="59" value="5" />
+              </label>
+              <label class="field">
+                <span>Seconds</span>
+                <input type="number" id="timerSeconds" min="0" max="59" value="0" />
+              </label>
+              <label class="field grow">
+                <span>Label</span>
+                <input type="text" id="timerLabel" placeholder="Focus session" maxlength="40" autocomplete="off" />
+              </label>
+            </div>
+            <div class="btn-row">
+              <button type="submit" class="btn primary" id="timerStartBtn">Start timer</button>
+              <button type="button" class="btn ghost" id="timerPauseBtn" hidden>Pause</button>
+              <button type="button" class="btn ghost" id="timerResetBtn" hidden>Reset</button>
+            </div>
+          </form>
+
+          <form class="form" id="timerEndForm" hidden>
+            <div class="field-row">
+              <label class="field grow">
+                <span>Label</span>
+                <input type="text" id="timerEndLabel" placeholder="Until meeting" maxlength="40" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>End date</span>
+                <input type="date" id="timerEndDate" required />
+              </label>
+              <label class="field">
+                <span>End time</span>
+                <input type="time" id="timerEndTime" required />
+              </label>
+            </div>
+            <div class="btn-row">
+              <button type="submit" class="btn primary">Start until end</button>
+            </div>
+          </form>
+
+          <div class="timer-display" id="timerDisplay" hidden>
+            <div class="big-time mono" id="timerRemaining">00:05:00</div>
+            <p class="muted" id="timerMeta"></p>
+          </div>
+        </div>
+
+        <!-- STOPWATCH -->
+        <div class="panel" id="panel-stopwatch" role="tabpanel" hidden>
+          <div class="stopwatch-display">
+            <div class="big-time mono" id="stopwatchTime">00:00:00.00</div>
+          </div>
+          <div class="btn-row center">
+            <button type="button" class="btn primary" id="swStartBtn">Start</button>
+            <button type="button" class="btn ghost" id="swLapBtn" disabled>Lap</button>
+            <button type="button" class="btn ghost" id="swResetBtn" disabled>Reset</button>
+          </div>
+          <ol class="laps" id="lapList"></ol>
+        </div>
+      </section>
+    </main>
+
+    <!-- Background modal -->
+    <dialog class="modal" id="bgModal">
+      <form method="dialog" class="modal-card" id="bgForm">
+        <header class="modal-head">
+          <h2>New tab background</h2>
+          <button type="submit" class="icon-btn" value="cancel" aria-label="Close">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </header>
+        <div class="modal-body">
+          <label class="field">
+            <span>Solid color</span>
+            <div class="color-row">
+              <input type="color" id="bgColor" value="#1a1d21" />
+              <button type="button" class="btn ghost sm" id="applyColorBtn">Apply color</button>
+            </div>
+          </label>
+          <label class="field">
+            <span>Image</span>
+            <input type="file" id="bgImage" accept="image/*" />
+          </label>
+          <p class="hint">Images are stored locally in this extension. Uninstalling removes all saved data.</p>
+        </div>
+        <footer class="modal-foot">
+          <button type="button" class="btn ghost" id="resetBgBtn">Reset default</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- Theme menu -->
+    <dialog class="menu" id="themeMenu">
+      <form method="dialog" class="menu-card">
+        <button type="submit" class="menu-item" value="system" data-theme="system">System</button>
+        <button type="submit" class="menu-item" value="light" data-theme="light">Light</button>
+        <button type="submit" class="menu-item" value="dark" data-theme="dark">Dark</button>
+      </form>
+    </dialog>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
