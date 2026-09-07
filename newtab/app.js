@@ -3,7 +3,20 @@
  * Data in localStorage; Chrome clears extension origin on uninstall.
  */
 
+import { CITIES, CITY_BY_ID, DEFAULT_CITY_IDS } from "./cities.js";
+import { subsolarPoint } from "./solar.js";
+import { createWorldMap, cityReadout } from "./world-clock.js";
+
 const STORAGE_KEY = "focusClockData";
+
+const CLOCK_FORMATS = ["auto", "12", "24"];
+
+const defaultWorld = () => ({
+  enabled: true,
+  cities: [...DEFAULT_CITY_IDS],
+  clockFormat: "auto",
+  showPins: true,
+});
 
 const defaultState = () => ({
   theme: "system",
@@ -11,7 +24,23 @@ const defaultState = () => ({
   alarms: [],
   timers: [],
   stopwatches: [],
+  world: defaultWorld(),
 });
+
+/** Drops cities that are no longer in the catalogue and keeps an empty list empty. */
+function normalizeWorld(world) {
+  const base = defaultWorld();
+  if (!world || typeof world !== "object") return base;
+  const cities = Array.isArray(world.cities)
+    ? [...new Set(world.cities.filter((id) => CITY_BY_ID.has(id)))]
+    : base.cities;
+  return {
+    enabled: world.enabled !== false,
+    cities,
+    clockFormat: CLOCK_FORMATS.includes(world.clockFormat) ? world.clockFormat : "auto",
+    showPins: world.showPins !== false,
+  };
+}
 
 function migrateState(parsed) {
   const base = defaultState();
@@ -22,6 +51,7 @@ function migrateState(parsed) {
     alarms: Array.isArray(parsed.alarms) ? parsed.alarms : [],
     timers: Array.isArray(parsed.timers) ? parsed.timers : [],
     stopwatches: Array.isArray(parsed.stopwatches) ? parsed.stopwatches : [],
+    world: normalizeWorld(parsed.world),
   };
 
   // Migrate old single timer / stopwatch
@@ -66,14 +96,19 @@ function loadState() {
   }
 }
 
-function saveState(state) {
-  const payload = {
+function toPayload(state) {
+  return {
     theme: state.theme,
     background: state.background,
     alarms: state.alarms,
     timers: state.timers,
     stopwatches: state.stopwatches,
+    world: state.world,
   };
+}
+
+function saveState(state) {
+  const payload = toPayload(state);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   mirrorToChromeStorage(payload);
   syncChromeAlarms(payload);
@@ -170,9 +205,15 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
 
 function applyBackground() {
   const layer = document.getElementById("bgLayer");
+  const worldBg = document.getElementById("worldBg");
   const bg = state.background;
   layer.style.backgroundImage = "";
   layer.style.backgroundColor = "";
+
+  const useWorld = bg.type === "world";
+  document.body.classList.toggle("has-world-bg", useWorld);
+  worldBg.hidden = !useWorld;
+  if (useWorld) ensureWorldMap();
 
   if (bg.type === "color" && bg.color) {
     layer.style.backgroundColor = bg.color;
@@ -202,6 +243,179 @@ function tickWallClock() {
     day: "numeric",
     year: "numeric",
   });
+}
+
+/* ---------- World clock ---------- */
+
+const PHASE_ICON = {
+  day: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+      <circle cx="12" cy="12" r="4.2" />
+      <path d="M12 2.5v2M12 19.5v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2.5 12h2M19.5 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
+    </svg>`,
+  twilight: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+      <path d="M3 17h18" />
+      <path d="M7.5 17a4.5 4.5 0 0 1 9 0" />
+      <path d="M12 4.5v2.2M5.6 7.1l1.6 1.6M18.4 7.1l-1.6 1.6M2.5 12.5h2.2M19.3 12.5h2.2" />
+    </svg>`,
+  night: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round">
+      <path d="M20.5 14.3A8.6 8.6 0 1 1 9.7 3.5a6.9 6.9 0 0 0 10.8 10.8z" />
+    </svg>`,
+};
+
+const PHASE_TEXT = { day: "Daytime", twilight: "Twilight", night: "Night" };
+
+let worldMap = null;
+let lastCardsKey = "";
+let lastMapKey = "";
+
+function ensureWorldMap() {
+  if (!worldMap) {
+    worldMap = createWorldMap();
+    document.getElementById("worldBg").appendChild(worldMap.el);
+  }
+  return worldMap;
+}
+
+/**
+ * Areas the map should keep its labels out of, so a city name never ends up
+ * half-hidden behind the clock or a card.
+ */
+function contentRects() {
+  return [".top-bar", ".hero", ".world-row", ".status-row"]
+    .map((sel) => document.querySelector(sel))
+    .filter((node) => node && !node.hidden)
+    .map((node) => node.getBoundingClientRect())
+    .filter((rect) => rect.width > 0 && rect.height > 0);
+}
+
+/** Chosen cities with their current readouts, ordered west to east. */
+function worldEntries(now, sub) {
+  return state.world.cities
+    .map((id) => CITY_BY_ID.get(id))
+    .filter(Boolean)
+    .map((city) => ({ city, readout: cityReadout(city, now, state.world.clockFormat, sub) }))
+    .sort(
+      (a, b) =>
+        a.readout.offsetMinutes - b.readout.offsetMinutes ||
+        a.city.name.localeCompare(b.city.name)
+    );
+}
+
+function worldCard({ city, readout }) {
+  const card = document.createElement("article");
+  card.className = `world-card is-${readout.phase}`;
+  card.title = `${city.name}, ${city.country} — ${PHASE_TEXT[readout.phase]}`;
+
+  const top = document.createElement("div");
+  top.className = "world-card-top";
+
+  const icon = document.createElement("span");
+  icon.className = "world-phase";
+  icon.innerHTML = PHASE_ICON[readout.phase];
+
+  const name = document.createElement("span");
+  name.className = "world-city";
+  name.textContent = city.name;
+
+  const rel = document.createElement("span");
+  rel.className = "world-rel";
+  rel.textContent = readout.relativeLabel;
+
+  top.append(icon, name, rel);
+
+  const time = document.createElement("div");
+  time.className = "world-time mono";
+  time.textContent = readout.time;
+
+  const meta = document.createElement("div");
+  meta.className = "world-meta";
+  meta.textContent = `${readout.dayLabel} · ${readout.offsetLabel}`;
+
+  card.append(top, time, meta);
+  return card;
+}
+
+/**
+ * Cards only change once a minute and the terminator crawls a quarter of a
+ * degree per minute, so both are keyed rather than rebuilt on every 200ms tick.
+ */
+function renderWorldClock(now = new Date(), force = false) {
+  const world = state.world;
+  const settingsKey =
+    `${world.enabled}|${world.showPins}|${world.clockFormat}|` +
+    `${world.cities.join(",")}|${state.background.type}`;
+  const cardsKey = `${settingsKey}|${Math.floor(now.getTime() / 60000)}`;
+  const mapKey = `${settingsKey}|${Math.floor(now.getTime() / 15000)}`;
+  if (!force && cardsKey === lastCardsKey && mapKey === lastMapKey) return;
+
+  const sub = subsolarPoint(now);
+  const entries = worldEntries(now, sub);
+
+  if (force || cardsKey !== lastCardsKey) {
+    lastCardsKey = cardsKey;
+    const row = document.getElementById("worldRow");
+    const show = world.enabled && entries.length > 0;
+    row.hidden = !show;
+    row.replaceChildren(...(show ? entries.map(worldCard) : []));
+  }
+
+  if (force || mapKey !== lastMapKey) {
+    lastMapKey = mapKey;
+    if (state.background.type === "world") {
+      ensureWorldMap().update({
+        date: now,
+        cities: entries.map((e) => e.city),
+        showPins: world.showPins,
+        clockFormat: world.clockFormat,
+        avoid: contentRects(),
+      });
+    }
+  }
+}
+
+function renderWorldSettings() {
+  const world = state.world;
+  document.getElementById("worldEnabled").checked = world.enabled;
+  document.getElementById("worldShowPins").checked = world.showPins;
+  document.getElementById("worldFormat").value = world.clockFormat;
+
+  const select = document.getElementById("worldCitySelect");
+  const chosen = new Set(world.cities);
+  const available = CITIES.filter((c) => !chosen.has(c.id));
+  const keep = select.value;
+  select.replaceChildren(
+    ...available.map((c) => {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = `${c.name} — ${c.country}`;
+      return opt;
+    })
+  );
+  if (available.some((c) => c.id === keep)) select.value = keep;
+  select.disabled = available.length === 0;
+
+  const list = document.getElementById("worldList");
+  if (!world.cities.length) {
+    list.innerHTML = `<li class="empty-note">No cities yet</li>`;
+    return;
+  }
+  const now = new Date();
+  const sub = subsolarPoint(now);
+  list.replaceChildren(
+    ...worldEntries(now, sub).map(({ city, readout }) =>
+      listItem(
+        `${city.name}, ${city.country}`,
+        readout.phase,
+        `${readout.time} · ${readout.dayLabel} · ${readout.offsetLabel} (${readout.relativeLabel})`,
+        [
+          actionBtn("Remove", "danger", () => {
+            state.world.cities = state.world.cities.filter((id) => id !== city.id);
+            persist();
+          }),
+        ]
+      )
+    )
+  );
 }
 
 /* ---------- Status (home) ---------- */
@@ -421,12 +635,26 @@ function renderStopwatchList() {
         })
       );
 
-      return listItem(s.label, s.status, sub, actions);
+      return listItem(s.label, s.status, sub, actions, lapsLine(s.laps));
     })
   );
 }
 
-function listItem(title, status, sub, actions) {
+/** Most recent laps, newest first, with each split alongside the total. */
+function lapsLine(laps) {
+  if (!laps.length) return null;
+  const el = document.createElement("div");
+  el.className = "laps-inline mono";
+  el.textContent = laps
+    .map((total, i) => ({ n: i + 1, total, split: total - (i > 0 ? laps[i - 1] : 0) }))
+    .slice(-4)
+    .reverse()
+    .map((lap) => `#${lap.n} ${formatHMS(lap.total, true)} (+${formatHMS(lap.split, true)})`)
+    .join("   ");
+  return el;
+}
+
+function listItem(title, status, sub, actions, extra = null) {
   const li = document.createElement("li");
   li.className = "list-item";
 
@@ -446,6 +674,7 @@ function listItem(title, status, sub, actions) {
   subEl.textContent = sub;
 
   info.append(titleEl, subEl);
+  if (extra) info.appendChild(extra);
 
   const act = document.createElement("div");
   act.className = "item-actions";
@@ -634,6 +863,8 @@ function renderAll() {
   applyTheme();
   applyBackground();
   renderStatus();
+  renderWorldClock(new Date(), true);
+  renderWorldSettings();
   renderAlarmList();
   renderTimerList();
   renderStopwatchList();
@@ -673,6 +904,27 @@ function init() {
   document.getElementById("timerEndForm").addEventListener("submit", addEndTimer);
   document.getElementById("stopwatchForm").addEventListener("submit", addStopwatch);
 
+  // World clock
+  document.getElementById("worldEnabled").addEventListener("change", (e) => {
+    state.world.enabled = e.target.checked;
+    persist();
+  });
+  document.getElementById("worldShowPins").addEventListener("change", (e) => {
+    state.world.showPins = e.target.checked;
+    persist();
+  });
+  document.getElementById("worldFormat").addEventListener("change", (e) => {
+    state.world.clockFormat = CLOCK_FORMATS.includes(e.target.value) ? e.target.value : "auto";
+    persist();
+  });
+  document.getElementById("worldForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const id = document.getElementById("worldCitySelect").value;
+    if (!id || !CITY_BY_ID.has(id) || state.world.cities.includes(id)) return;
+    state.world.cities.push(id);
+    persist();
+  });
+
   // Settings
   const settingsDialog = document.getElementById("settingsDialog");
   document.getElementById("settingsBtn").addEventListener("click", () => {
@@ -710,11 +962,41 @@ function init() {
   const bgModal = document.getElementById("bgModal");
   const bgImage = document.getElementById("bgImage");
   const bgImageName = document.getElementById("bgImageName");
+
+  // Which sub-panel the modal is showing. Picking "Default" or "World clock"
+  // applies straight away; colour and image need a second step, so selecting
+  // them only reveals their controls.
+  function showBgPanel(style) {
+    document.querySelectorAll(".bg-style").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.style === style);
+      btn.setAttribute("aria-pressed", String(btn.dataset.style === style));
+    });
+    document.querySelectorAll(".bg-option").forEach((opt) => {
+      opt.hidden = opt.dataset.style !== style;
+    });
+  }
+
+  document.querySelectorAll(".bg-style").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const style = btn.dataset.style;
+      showBgPanel(style);
+      if (style === "default") {
+        state.background = { type: "default", color: null, image: null };
+        persist();
+      } else if (style === "world") {
+        state.background = { type: "world", color: null, image: null };
+        persist();
+      }
+    });
+  });
+
   document.getElementById("bgBtn").addEventListener("click", () => {
     if (state.background.color) {
       document.getElementById("bgColor").value = state.background.color;
     }
-    bgImageName.textContent = state.background.type === "image" ? "Custom image set" : "No file chosen";
+    bgImageName.textContent =
+      state.background.type === "image" ? "Custom image set" : "No file chosen";
+    showBgPanel(state.background.type);
     bgModal.showModal();
   });
   document.getElementById("applyColorBtn").addEventListener("click", () => {
@@ -748,6 +1030,7 @@ function init() {
     state.background = { type: "default", color: null, image: null };
     bgImage.value = "";
     bgImageName.textContent = "No file chosen";
+    showBgPanel("default");
     persist();
   });
 
@@ -757,23 +1040,25 @@ function init() {
       const next = changes[STORAGE_KEY].newValue;
       if (!next) return;
       state = migrateState(next);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        theme: state.theme,
-        background: state.background,
-        alarms: state.alarms,
-        timers: state.timers,
-        stopwatches: state.stopwatches,
-      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toPayload(state)));
       renderAll();
     });
   } catch {
     /* ignore */
   }
 
+  // Label placement depends on where the content lands, so redo it on resize.
+  let resizeTimer = 0;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => renderWorldClock(new Date(), true), 150);
+  });
+
   setInterval(() => {
     tickWallClock();
     checkExpirations();
     renderStatus();
+    renderWorldClock();
     const settingsOpen = document.getElementById("settingsDialog").open;
     if (settingsOpen) {
       renderAlarmList();

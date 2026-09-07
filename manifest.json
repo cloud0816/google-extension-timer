@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Focus Clock — Alarm, Timer & Stopwatch",
-  "version": "1.0.0",
-  "description": "Set alarms, timers, and a stopwatch on your new tab. Customize theme and background.",
+  "name": "Focus Clock — World Clock, Alarm, Timer & Stopwatch",
+  "version": "1.1.0",
+  "description": "A live world map with day and night, plus alarms, timers, and a stopwatch on every new tab.",
   "permissions": ["alarms", "notifications", "storage"],
   "chrome_url_overrides": {
     "newtab": "newtab/index.html"

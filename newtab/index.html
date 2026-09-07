@@ -14,6 +14,7 @@
   </head>
   <body>
     <div class="bg-layer" id="bgLayer" aria-hidden="true"></div>
+    <div class="world-bg" id="worldBg" hidden></div>
     <div class="ambient" aria-hidden="true"></div>
 
     <header class="top-bar">
@@ -54,6 +55,8 @@
         <p class="wall-date" id="wallDate"></p>
       </section>
 
+      <section class="world-row" id="worldRow" aria-label="World clock" hidden></section>
+
       <section class="status-row" id="statusRow" aria-label="Current status">
         <!-- filled by JS -->
       </section>
@@ -75,6 +78,7 @@
           <button type="button" class="tab active" role="tab" data-panel="alarm" aria-selected="true">Alarm</button>
           <button type="button" class="tab" role="tab" data-panel="timer" aria-selected="false">Timer</button>
           <button type="button" class="tab" role="tab" data-panel="stopwatch" aria-selected="false">Stopwatch</button>
+          <button type="button" class="tab" role="tab" data-panel="world" aria-selected="false">World clock</button>
         </nav>
 
         <div class="panels">
@@ -163,6 +167,44 @@
             </form>
             <ul class="list" id="stopwatchList"></ul>
           </div>
+
+          <!-- WORLD CLOCK -->
+          <div class="panel" id="panel-world" role="tabpanel" hidden>
+            <div class="toggle-row">
+              <label class="switch">
+                <input type="checkbox" id="worldEnabled" />
+                <span>Show world clock on the new tab</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" id="worldShowPins" />
+                <span>Pin cities on the map</span>
+              </label>
+            </div>
+
+            <form class="form" id="worldForm">
+              <div class="field-row">
+                <label class="field grow">
+                  <span>Add a city</span>
+                  <select id="worldCitySelect"></select>
+                </label>
+                <label class="field">
+                  <span>Clock format</span>
+                  <select id="worldFormat">
+                    <option value="auto">Match system</option>
+                    <option value="12">12-hour</option>
+                    <option value="24">24-hour</option>
+                  </select>
+                </label>
+              </div>
+              <button type="submit" class="btn primary">Add city</button>
+            </form>
+
+            <ul class="list" id="worldList"></ul>
+            <p class="hint">
+              Cities are ordered west to east by UTC offset. The map shades the half of
+              the world where the sun is down and marks the point it is overhead.
+            </p>
+          </div>
         </div>
       </div>
     </dialog>
@@ -179,22 +221,53 @@
           </button>
         </header>
         <div class="modal-body">
-          <label class="field">
-            <span>Solid color</span>
-            <div class="color-row">
-              <input type="color" id="bgColor" value="#1a1d21" />
-              <button type="button" class="btn ghost sm" id="applyColorBtn">Apply color</button>
-            </div>
-          </label>
           <div class="field">
-            <span>Image</span>
-            <div class="file-picker">
-              <input type="file" id="bgImage" accept="image/*" hidden />
-              <button type="button" class="btn ghost" id="pickImageBtn">Choose image</button>
-              <span class="file-name" id="bgImageName">No file chosen</span>
+            <span>Style</span>
+            <div class="bg-styles" id="bgStyles" role="group" aria-label="Background style">
+              <button type="button" class="bg-style" data-style="default">
+                <span class="bg-swatch swatch-default"></span>Default
+              </button>
+              <button type="button" class="bg-style" data-style="color">
+                <span class="bg-swatch swatch-color"></span>Solid color
+              </button>
+              <button type="button" class="bg-style" data-style="image">
+                <span class="bg-swatch swatch-image"></span>Image
+              </button>
+              <button type="button" class="bg-style" data-style="world">
+                <span class="bg-swatch swatch-world"></span>World clock
+              </button>
             </div>
           </div>
-          <p class="hint">Images are stored locally in this extension. Uninstalling removes all saved data.</p>
+
+          <div class="bg-option" data-style="color" hidden>
+            <label class="field">
+              <span>Solid color</span>
+              <div class="color-row">
+                <input type="color" id="bgColor" value="#1a1d21" />
+                <button type="button" class="btn ghost sm" id="applyColorBtn">Apply color</button>
+              </div>
+            </label>
+          </div>
+
+          <div class="bg-option" data-style="image" hidden>
+            <div class="field">
+              <span>Image</span>
+              <div class="file-picker">
+                <input type="file" id="bgImage" accept="image/*" hidden />
+                <button type="button" class="btn ghost" id="pickImageBtn">Choose image</button>
+                <span class="file-name" id="bgImageName">No file chosen</span>
+              </div>
+            </div>
+            <p class="hint">Images are stored locally in this extension. Uninstalling removes all saved data.</p>
+          </div>
+
+          <div class="bg-option" data-style="world" hidden>
+            <p class="hint">
+              A live world map: the shaded half is where the sun is down, the glow marks
+              the point it is directly overhead, and your cities are pinned with their
+              local time. Pick cities under <strong>Settings &rsaquo; World clock</strong>.
+            </p>
+          </div>
         </div>
         <footer class="modal-foot">
           <button type="button" class="btn ghost" id="resetBgBtn">Reset default</button>

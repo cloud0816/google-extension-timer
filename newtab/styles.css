@@ -701,3 +701,398 @@ html:not([data-theme="dark"]) .btn.primary {
   color: var(--text-muted);
   margin-top: 0.15rem;
 }
+
+/* ---------- World clock ---------- */
+
+:root {
+  --map-ocean: #c6dcec;
+  --map-land: #f4f8fa;
+  --map-border: rgba(28, 62, 94, 0.3);
+  --map-grid: rgba(28, 62, 94, 0.13);
+  --map-night: #0a1b30;
+  --map-night-opacity: 0.34;
+  --map-label: #14314a;
+  --map-label-halo: rgba(255, 255, 255, 0.85);
+  --map-time: #0b6a62;
+  --map-pin-day: #f59e0b;
+  --map-pin-night: #6366f1;
+  --map-scrim: linear-gradient(
+    180deg,
+    rgba(232, 236, 239, 0.84) 0%,
+    rgba(232, 236, 239, 0.3) 24%,
+    rgba(232, 236, 239, 0.22) 56%,
+    rgba(232, 236, 239, 0.7) 100%
+  );
+  --phase-day: #d97706;
+  --phase-twilight: #db6a2b;
+  --phase-night: #6366f1;
+}
+
+html[data-theme="dark"] {
+  --map-ocean: #0c1b2c;
+  --map-land: #244463;
+  --map-border: rgba(8, 18, 30, 0.75);
+  --map-grid: rgba(126, 166, 209, 0.16);
+  --map-night: #01060f;
+  --map-night-opacity: 0.68;
+  --map-label: #e9f2fb;
+  --map-label-halo: rgba(3, 10, 20, 0.75);
+  --map-time: #7fd1f5;
+  --map-pin-day: #fbbf24;
+  --map-pin-night: #a5b4fc;
+  --map-scrim: linear-gradient(
+    180deg,
+    rgba(10, 14, 22, 0.82) 0%,
+    rgba(10, 14, 22, 0.26) 24%,
+    rgba(10, 14, 22, 0.18) 56%,
+    rgba(10, 14, 22, 0.74) 100%
+  );
+  --phase-day: #fbbf24;
+  --phase-twilight: #fb923c;
+  --phase-night: #a5b4fc;
+}
+
+.world-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.world-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--map-scrim);
+  pointer-events: none;
+}
+
+/* The map is the backdrop, so the ambient glow would only add haze. */
+body.has-world-bg .ambient {
+  display: none;
+}
+
+body.has-world-bg .wall-clock,
+body.has-world-bg .wall-date {
+  text-shadow: 0 2px 18px var(--bg);
+}
+
+.world-map {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.wm-ocean {
+  fill: var(--map-ocean);
+}
+
+.wm-graticule line {
+  stroke: var(--map-grid);
+  stroke-width: 0.14;
+}
+
+.wm-equator {
+  stroke-width: 0.24;
+}
+
+.wm-land {
+  fill: var(--map-land);
+  fill-rule: evenodd;
+}
+
+.wm-borders {
+  fill: none;
+  stroke: var(--map-border);
+  stroke-width: 0.18;
+  stroke-linejoin: round;
+}
+
+.wm-night {
+  fill: var(--map-night);
+  opacity: var(--map-night-opacity);
+}
+
+.wm-sun-core {
+  fill: #ffe9a8;
+}
+
+.wm-pin-halo {
+  fill: var(--map-pin-night);
+  opacity: 0.32;
+}
+
+.wm-pin.is-day .wm-pin-halo {
+  fill: var(--map-pin-day);
+  opacity: 0.45;
+}
+
+.wm-pin-dot {
+  fill: var(--map-label);
+  stroke: var(--map-label-halo);
+  stroke-width: 0.35;
+}
+
+.wm-pin-name,
+.wm-pin-time {
+  paint-order: stroke fill;
+  stroke: var(--map-label-halo);
+  stroke-width: 0.9;
+  stroke-linejoin: round;
+}
+
+.wm-pin-name {
+  fill: var(--map-label);
+  font-family: var(--font);
+  font-size: 2.9px;
+  font-weight: 700;
+}
+
+.wm-pin-time {
+  fill: var(--map-time);
+  font-family: var(--mono);
+  font-size: 3.1px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* City strip on the home view */
+.world-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: 0.6rem;
+}
+
+.world-card {
+  background: var(--bg-elevated);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--phase-night);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.7rem 0.65rem;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.world-card.is-day {
+  border-top-color: var(--phase-day);
+}
+
+.world-card.is-twilight {
+  border-top-color: var(--phase-twilight);
+}
+
+.world-card-top {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.world-phase {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--phase-night);
+}
+
+.world-card.is-day .world-phase {
+  color: var(--phase-day);
+}
+
+.world-card.is-twilight .world-phase {
+  color: var(--phase-twilight);
+}
+
+.world-phase svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.world-city {
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.world-rel {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.world-time {
+  font-size: 1.3rem;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.world-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.badge.day {
+  background: color-mix(in srgb, var(--phase-day) 18%, transparent);
+  color: var(--phase-day);
+}
+
+.badge.twilight {
+  background: color-mix(in srgb, var(--phase-twilight) 18%, transparent);
+  color: var(--phase-twilight);
+}
+
+.badge.night {
+  background: color-mix(in srgb, var(--phase-night) 18%, transparent);
+  color: var(--phase-night);
+}
+
+/* ---------- Settings controls ---------- */
+
+.field select {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.75rem;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.field select:focus {
+  border-color: var(--accent);
+}
+
+.field select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.4rem;
+  margin-bottom: 1.1rem;
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.switch input {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* Background style picker */
+.bg-styles {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.45rem;
+}
+
+.bg-style {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.7rem;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.bg-style:hover {
+  border-color: var(--accent);
+}
+
+.bg-style.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.bg-swatch {
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.swatch-default {
+  background: var(--bg);
+}
+
+.swatch-color {
+  background: linear-gradient(135deg, #0ea5e9, #a855f7);
+}
+
+.swatch-image {
+  background: linear-gradient(135deg, #22c55e 0%, #22c55e 45%, #facc15 45%, #facc15 100%);
+}
+
+.swatch-world {
+  background: linear-gradient(90deg, #38bdf8 0%, #1d4ed8 48%, #0b1220 100%);
+}
+
+/* World-map mode gives the middle of the screen to the map: the clock sits at
+   the top, the cards along the bottom, leaving room for pins in between. */
+body.has-world-bg .stage {
+  width: min(1260px, calc(100% - 3rem));
+  min-height: calc(100vh - 8.5rem);
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+body.has-world-bg .hero {
+  text-align: left;
+  padding: 0.25rem 0 0;
+}
+
+body.has-world-bg .wall-clock {
+  font-size: clamp(2.4rem, 5.5vw, 3.6rem);
+}
+
+body.has-world-bg .wall-date {
+  margin-top: 0.3rem;
+  font-size: 0.95rem;
+}
+
+/* Both rows ride together at the bottom of the viewport. */
+body.has-world-bg .world-row {
+  margin-top: auto;
+}
+
+body.has-world-bg .status-card {
+  min-height: 0;
+}
+
+@media (max-height: 720px) {
+  body.has-world-bg .stage {
+    min-height: 0;
+  }
+}
