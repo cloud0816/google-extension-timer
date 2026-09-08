@@ -213,8 +213,21 @@ function resolveTheme(pref) {
 }
 
 function applyTheme() {
-  document.documentElement.setAttribute("data-theme", resolveTheme(state.theme));
+  const resolved = resolveTheme(state.theme);
+  document.documentElement.setAttribute("data-theme", resolved);
   document.getElementById("themeBtn").dataset.themePref = state.theme;
+  syncActionIcon(resolved);
+}
+
+function syncActionIcon(resolved) {
+  try {
+    if (!chrome?.runtime?.sendMessage) return;
+    chrome.runtime.sendMessage({ type: "SET_ICON_THEME", theme: resolved }, () => {
+      void chrome.runtime.lastError;
+    });
+  } catch (_) {
+    /* extension context may be unavailable during local file preview */
+  }
 }
 
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
@@ -589,11 +602,10 @@ function renderStatus() {
     (s) => s.status === "running" || s.status === "paused" || s.elapsedMs > 0
   );
 
-  row.replaceChildren(
-    buildStatusCard(
-      "Alarm",
-      alarms,
-      (a) => {
+  const cards = [];
+  if (alarms.length) {
+    cards.push(
+      buildStatusCard("Alarm", alarms, (a) => {
         if (a.status === "fired") {
           return { value: "Ringing", meta: a.label };
         }
@@ -602,13 +614,12 @@ function renderStatus() {
           value: formatHMS(left),
           meta: `${a.label} · ${formatDateTime(a.at)}`,
         };
-      },
-      "No active alarm"
-    ),
-    buildStatusCard(
-      "Timer",
-      timers,
-      (t) => {
+      })
+    );
+  }
+  if (timers.length) {
+    cards.push(
+      buildStatusCard("Timer", timers, (t) => {
         const left = timerRemainingMs(t);
         const value =
           t.status === "finished" || left === 0 ? "00:00:00" : formatHMS(left);
@@ -618,38 +629,30 @@ function renderStatus() {
         else if (t.method === "end" && t.endsAt) meta += ` · until ${formatDateTime(t.endsAt)}`;
         else meta += " · running";
         return { value, meta };
-      },
-      "No active timer"
-    ),
-    buildStatusCard(
-      "Stopwatch",
-      stopwatches,
-      (s) => ({
+      })
+    );
+  }
+  if (stopwatches.length) {
+    cards.push(
+      buildStatusCard("Stopwatch", stopwatches, (s) => ({
         value: formatHMS(stopwatchElapsed(s), true),
         meta: `${s.label} · ${s.status === "running" ? "running" : s.status === "paused" ? "paused" : "stopped"}`,
-      }),
-      "Not started"
-    )
-  );
+      }))
+    );
+  }
+
+  row.hidden = cards.length === 0;
+  row.replaceChildren(...cards);
 }
 
-function buildStatusCard(label, items, mapItem, emptyText) {
+function buildStatusCard(label, items, mapItem) {
   const card = document.createElement("article");
-  card.className = "status-card";
-  if (items.length) card.classList.add("has-items");
+  card.className = "status-card has-items";
 
   const lab = document.createElement("div");
   lab.className = "status-label";
   lab.textContent = label;
   card.appendChild(lab);
-
-  if (!items.length) {
-    const empty = document.createElement("div");
-    empty.className = "status-empty";
-    empty.textContent = emptyText;
-    card.appendChild(empty);
-    return card;
-  }
 
   const ul = document.createElement("ul");
   ul.className = "status-items";

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Focus Clock — World Clock, Alarm, Timer & Stopwatch",
+  "name": "World Clock, Alarm, Timer & Stopwatch",
   "version": "1.2.0",
   "description": "A live world map with day, night and weather, plus alarms, timers, and a stopwatch on every new tab.",
   "permissions": ["alarms", "notifications", "storage"],
@@ -16,10 +16,10 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Focus Clock",
+    "default_title": "World Clock, Alarm, Timer & Stopwatch",
     "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png"
+      "16": "icons/light/icon16.png",
+      "48": "icons/light/icon48.png"
     }
   },
   "content_security_policy": {
