@@ -179,6 +179,10 @@
                 <input type="checkbox" id="worldShowPins" />
                 <span>Pin cities on the map</span>
               </label>
+              <label class="switch">
+                <input type="checkbox" id="worldShowWeather" />
+                <span>Show weather</span>
+              </label>
             </div>
 
             <form class="form" id="worldForm">
@@ -195,6 +199,13 @@
                     <option value="24">24-hour</option>
                   </select>
                 </label>
+                <label class="field">
+                  <span>Temperature</span>
+                  <select id="worldTempUnit">
+                    <option value="celsius">Celsius (&deg;C)</option>
+                    <option value="fahrenheit">Fahrenheit (&deg;F)</option>
+                  </select>
+                </label>
               </div>
               <button type="submit" class="btn primary">Add city</button>
             </form>
@@ -204,6 +215,7 @@
               Cities are ordered west to east by UTC offset. The map shades the half of
               the world where the sun is down and marks the point it is overhead.
             </p>
+            <p class="hint" id="worldWeatherStatus"></p>
           </div>
         </div>
       </div>

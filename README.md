@@ -7,6 +7,7 @@ Replace Chrome’s new tab with a **World clock**, **Alarm**, **Timer**, and **S
 - **New tab = status only** — large clock plus live World / Alarm / Timer / Stopwatch cards
 - **World clock** — local time for any of 56 cities, with a day / twilight / night marker, the day offset (Today / Tomorrow / Yesterday) and the UTC offset
 - **World map background** — an equirectangular map that shades the half of the planet where the sun is down, marks the point it is directly overhead, and pins your cities with their local time
+- **Weather** — current temperature and conditions per city, on the cards and on the map pins; °C or °F; can be turned off
 - **Settings** — gear button to add and manage items (not on the home view)
 - **Multi alarm** — as many as you want; date + time; notifications when they fire
 - **Multi timer** — duration **or** end date/time; pause / resume each one
@@ -32,6 +33,7 @@ Allow notifications when Chrome prompts you so alarms and timers can alert you e
 | Theme | Top-right (monitor / sun / moon) → System, Light, or Dark |
 | Background | Top-right image button → default, color, image, or **World clock** |
 | Add / manage Alarm, Timer, Stopwatch, cities | Top-right **gear** → Settings |
+| Weather on/off, °C or °F | **Gear** → World clock |
 
 ## Project layout
 
@@ -43,6 +45,7 @@ newtab/styles.css        Themes and layout
 newtab/app.js            State, rendering, and event wiring
 newtab/solar.js          Sun position + day/night terminator maths
 newtab/world-clock.js    Map rendering and per-city time readouts
+newtab/weather.js        Open-Meteo client, WMO code table, weather icons
 newtab/cities.js         City catalogue (IANA zone, latitude, longitude)
 newtab/world-map-data.js Generated country outlines (see Credits)
 icons/                   Extension icons
@@ -61,6 +64,25 @@ counts as being in daylight once the sun is more than 0.833° above the horizon
 (the usual allowance for refraction and the sun’s radius), and as twilight down
 to 6° below it.
 
+## Weather
+
+Readings come from [Open-Meteo](https://open-meteo.com) — free for
+non-commercial use and **no API key**, so there is nothing to sign up for.
+
+- All selected cities go out in **one batched request**, cached for 30 minutes,
+  so opening many tabs does not mean many calls. A failed call backs off for
+  five minutes and the last good readings stay on screen.
+- The only thing sent is the **latitude and longitude of the cities you picked**,
+  from the built-in catalogue. The extension never asks for or sends your own
+  location, and requests no geolocation permission.
+- Temperatures are cached in Celsius and converted for display, so switching
+  between °C and °F never triggers a refetch.
+- Turn it off under **Settings › World clock › Show weather** and the extension
+  makes no weather requests at all.
+- No host permission is needed: Open-Meteo sends `Access-Control-Allow-Origin: *`.
+  The manifest instead pins `connect-src` to that one host, so the page cannot
+  reach anywhere else.
+
 ## Notes
 
 - Background images are stored as data URLs in `localStorage` (keep under ~4.5 MB).
@@ -72,3 +94,6 @@ to 6° below it.
 `newtab/world-map-data.js` is generated from Natural Earth 110m country
 boundaries by way of [world-atlas](https://github.com/topojson/world-atlas)
 (ISC). Natural Earth data is public domain.
+
+Weather data by [Open-Meteo](https://open-meteo.com), licensed
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

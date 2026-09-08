@@ -1096,3 +1096,45 @@ body.has-world-bg .status-card {
     min-height: 0;
   }
 }
+
+/* Weather line inside a city card */
+.world-weather {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+}
+
+.world-weather-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.world-card.is-day .world-weather-icon {
+  color: var(--phase-day);
+}
+
+.world-weather-icon svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.world-temp {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.world-cond {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

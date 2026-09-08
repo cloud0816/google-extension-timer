@@ -6,16 +6,32 @@
 import { CITIES, CITY_BY_ID, DEFAULT_CITY_IDS } from "./cities.js";
 import { subsolarPoint } from "./solar.js";
 import { createWorldMap, cityReadout } from "./world-clock.js";
+import {
+  defaultTempUnit,
+  describeCode,
+  fetchWeather,
+  formatTemp,
+  iconMarkup,
+} from "./weather.js";
 
 const STORAGE_KEY = "focusClockData";
 
+// Weather lives in its own key: it is a disposable cache, not user settings, so
+// it stays out of the payload mirrored to chrome.storage and the alarm sync.
+const WEATHER_KEY = "focusClockWeather";
+const WEATHER_MAX_AGE_MS = 30 * 60 * 1000;
+const WEATHER_RETRY_MS = 5 * 60 * 1000;
+
 const CLOCK_FORMATS = ["auto", "12", "24"];
+const TEMP_UNITS = ["celsius", "fahrenheit"];
 
 const defaultWorld = () => ({
   enabled: true,
   cities: [...DEFAULT_CITY_IDS],
   clockFormat: "auto",
   showPins: true,
+  showWeather: true,
+  tempUnit: defaultTempUnit(),
 });
 
 const defaultState = () => ({
@@ -39,6 +55,8 @@ function normalizeWorld(world) {
     cities,
     clockFormat: CLOCK_FORMATS.includes(world.clockFormat) ? world.clockFormat : "auto",
     showPins: world.showPins !== false,
+    showWeather: world.showWeather !== false,
+    tempUnit: TEMP_UNITS.includes(world.tempUnit) ? world.tempUnit : base.tempUnit,
   };
 }
 
@@ -245,6 +263,114 @@ function tickWallClock() {
   });
 }
 
+/* ---------- Weather ---------- */
+
+let weatherCache = loadWeatherCache();
+let weatherPending = false;
+let weatherRetryAfter = 0;
+let weatherFailed = false;
+
+function loadWeatherCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(WEATHER_KEY) || "null");
+    if (!raw || typeof raw.byCity !== "object" || !raw.byCity) throw new Error("empty");
+    return { fetchedAt: Number(raw.fetchedAt) || 0, byCity: raw.byCity };
+  } catch {
+    return { fetchedAt: 0, byCity: {} };
+  }
+}
+
+function selectedCities() {
+  return state.world.cities.map((id) => CITY_BY_ID.get(id)).filter(Boolean);
+}
+
+/**
+ * Fetches only when something is actually stale or missing, so this is safe to
+ * call from `persist()`. A failure backs off rather than retrying every change.
+ */
+async function refreshWeather({ force = false } = {}) {
+  const world = state.world;
+  if (!world.showWeather) return;
+
+  const cities = selectedCities();
+  if (!cities.length || weatherPending) return;
+
+  const stale = Date.now() - weatherCache.fetchedAt > WEATHER_MAX_AGE_MS;
+  const missing = cities.some((c) => !weatherCache.byCity[c.id]);
+  if (!force && !stale && !missing) return;
+  if (!force && Date.now() < weatherRetryAfter) return;
+
+  weatherPending = true;
+  try {
+    const readings = await fetchWeather(cities);
+    if (readings.size) {
+      // Rebuild around the current selection so the cache cannot grow forever.
+      const byCity = {};
+      for (const city of cities) {
+        const hit = readings.get(city.id) || weatherCache.byCity[city.id];
+        if (hit) byCity[city.id] = hit;
+      }
+      weatherCache = { fetchedAt: Date.now(), byCity };
+      weatherFailed = false;
+      weatherRetryAfter = 0;
+      try {
+        localStorage.setItem(WEATHER_KEY, JSON.stringify(weatherCache));
+      } catch {
+        /* quota or private mode: the in-memory copy still works for this tab */
+      }
+      renderWorldClock(new Date(), true);
+      renderWorldSettings();
+    }
+  } catch {
+    // Offline, blocked, or the API is unhappy. Keep whatever we already have.
+    weatherFailed = true;
+    weatherRetryAfter = Date.now() + WEATHER_RETRY_MS;
+    renderWorldSettings();
+  } finally {
+    weatherPending = false;
+  }
+}
+
+function weatherFor(cityId) {
+  return state.world.showWeather ? weatherCache.byCity[cityId] || null : null;
+}
+
+/** Short readings keyed by city, for the map pin labels. */
+function weatherForMap() {
+  const out = {};
+  if (!state.world.showWeather) return out;
+  for (const city of selectedCities()) {
+    const reading = weatherCache.byCity[city.id];
+    if (!reading) continue;
+    const short = formatTemp(reading.tempC, state.world.tempUnit);
+    if (short) out[city.id] = { short, label: describeCode(reading.code).label };
+  }
+  return out;
+}
+
+function relativeAge(ms) {
+  const minutes = Math.floor(Math.max(0, ms) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function weatherStatusText() {
+  if (!state.world.showWeather) return "Weather is off.";
+  if (!weatherCache.fetchedAt) {
+    return weatherFailed
+      ? "Weather unavailable — check your connection."
+      : "Fetching weather from Open-Meteo…";
+  }
+  const when = relativeAge(Date.now() - weatherCache.fetchedAt);
+  return weatherFailed
+    ? `Showing weather from ${when}; the last refresh failed.`
+    : `Weather from Open-Meteo, updated ${when}.`;
+}
+
 /* ---------- World clock ---------- */
 
 const PHASE_ICON = {
@@ -332,6 +458,29 @@ function worldCard({ city, readout }) {
   meta.textContent = `${readout.dayLabel} · ${readout.offsetLabel}`;
 
   card.append(top, time, meta);
+
+  const reading = weatherFor(city.id);
+  if (reading) {
+    const { label, icon } = describeCode(reading.code);
+    const row = document.createElement("div");
+    row.className = "world-weather";
+
+    const glyph = document.createElement("span");
+    glyph.className = "world-weather-icon";
+    glyph.innerHTML = iconMarkup(icon, readout.phase !== "day");
+
+    const temp = document.createElement("span");
+    temp.className = "world-temp";
+    temp.textContent = formatTemp(reading.tempC, state.world.tempUnit, true);
+
+    const condition = document.createElement("span");
+    condition.className = "world-cond";
+    condition.textContent = label;
+
+    row.append(glyph, temp, condition);
+    card.appendChild(row);
+  }
+
   return card;
 }
 
@@ -343,7 +492,8 @@ function renderWorldClock(now = new Date(), force = false) {
   const world = state.world;
   const settingsKey =
     `${world.enabled}|${world.showPins}|${world.clockFormat}|` +
-    `${world.cities.join(",")}|${state.background.type}`;
+    `${world.cities.join(",")}|${state.background.type}|` +
+    `${world.showWeather}|${world.tempUnit}|${weatherCache.fetchedAt}`;
   const cardsKey = `${settingsKey}|${Math.floor(now.getTime() / 60000)}`;
   const mapKey = `${settingsKey}|${Math.floor(now.getTime() / 15000)}`;
   if (!force && cardsKey === lastCardsKey && mapKey === lastMapKey) return;
@@ -367,6 +517,7 @@ function renderWorldClock(now = new Date(), force = false) {
         cities: entries.map((e) => e.city),
         showPins: world.showPins,
         clockFormat: world.clockFormat,
+        weather: weatherForMap(),
         avoid: contentRects(),
       });
     }
@@ -377,7 +528,10 @@ function renderWorldSettings() {
   const world = state.world;
   document.getElementById("worldEnabled").checked = world.enabled;
   document.getElementById("worldShowPins").checked = world.showPins;
+  document.getElementById("worldShowWeather").checked = world.showWeather;
   document.getElementById("worldFormat").value = world.clockFormat;
+  document.getElementById("worldTempUnit").value = world.tempUnit;
+  document.getElementById("worldWeatherStatus").textContent = weatherStatusText();
 
   const select = document.getElementById("worldCitySelect");
   const chosen = new Set(world.cities);
@@ -402,19 +556,22 @@ function renderWorldSettings() {
   const now = new Date();
   const sub = subsolarPoint(now);
   list.replaceChildren(
-    ...worldEntries(now, sub).map(({ city, readout }) =>
-      listItem(
+    ...worldEntries(now, sub).map(({ city, readout }) => {
+      const reading = weatherFor(city.id);
+      const temp = reading && formatTemp(reading.tempC, world.tempUnit, true);
+      return listItem(
         `${city.name}, ${city.country}`,
         readout.phase,
-        `${readout.time} · ${readout.dayLabel} · ${readout.offsetLabel} (${readout.relativeLabel})`,
+        `${readout.time} · ${readout.dayLabel} · ${readout.offsetLabel} (${readout.relativeLabel})` +
+          (reading ? ` · ${temp} ${describeCode(reading.code).label}` : ""),
         [
           actionBtn("Remove", "danger", () => {
             state.world.cities = state.world.cities.filter((id) => id !== city.id);
             persist();
           }),
         ]
-      )
-    )
+      );
+    })
   );
 }
 
@@ -857,6 +1014,8 @@ function checkExpirations() {
 function persist() {
   saveState(state);
   renderAll();
+  // Cheap unless a newly added city has no reading yet, or the cache went stale.
+  refreshWeather();
 }
 
 function renderAll() {
@@ -913,8 +1072,17 @@ function init() {
     state.world.showPins = e.target.checked;
     persist();
   });
+  document.getElementById("worldShowWeather").addEventListener("change", (e) => {
+    state.world.showWeather = e.target.checked;
+    persist();
+  });
   document.getElementById("worldFormat").addEventListener("change", (e) => {
     state.world.clockFormat = CLOCK_FORMATS.includes(e.target.value) ? e.target.value : "auto";
+    persist();
+  });
+  document.getElementById("worldTempUnit").addEventListener("change", (e) => {
+    // Readings are cached in Celsius, so this is a display change only.
+    state.world.tempUnit = TEMP_UNITS.includes(e.target.value) ? e.target.value : "celsius";
     persist();
   });
   document.getElementById("worldForm").addEventListener("submit", (e) => {
@@ -1046,6 +1214,9 @@ function init() {
   } catch {
     /* ignore */
   }
+
+  refreshWeather();
+  setInterval(() => refreshWeather(), 5 * 60 * 1000);
 
   // Label placement depends on where the content lands, so redo it on resize.
   let resizeTimer = 0;

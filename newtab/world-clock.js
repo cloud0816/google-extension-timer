@@ -210,7 +210,13 @@ export function createWorldMap() {
   function placeLabels(entries, blocked = []) {
     const boxes = [...blocked];
     for (const entry of entries) {
-      const halfWidth = Math.max(entry.name.length * 1.05, 9);
+      // Widest of the two lines: the name (bold sans) or the time and
+      // temperature (mono, which is wider per character).
+      const halfWidth = Math.max(
+        entry.name.length * 1.05,
+        (entry.timeText?.length || 0) * 0.95,
+        9
+      );
       entry.slot = null;
       for (const candidate of LABEL_SLOTS) {
         const box = {
@@ -247,15 +253,22 @@ export function createWorldMap() {
     };
   }
 
-  function renderPins(cities, date, clockFormat, sub, blocked) {
+  function renderPins(cities, date, clockFormat, sub, blocked, weather) {
     const entries = cities
-      .map((city) => ({
-        city,
-        name: city.name,
-        x: projectX(city.lon),
-        y: projectY(city.lat),
-        readout: cityReadout(city, date, clockFormat, sub),
-      }))
+      .map((city) => {
+        const readout = cityReadout(city, date, clockFormat, sub);
+        const reading = weather[city.id];
+        return {
+          city,
+          name: city.name,
+          // The pin shows time and temperature on one line to stay compact.
+          timeText: reading ? `${readout.time} · ${reading.short}` : readout.time,
+          reading,
+          x: projectX(city.lon),
+          y: projectY(city.lat),
+          readout,
+        };
+      })
       .sort((a, b) => a.x - b.x);
 
     const frag = document.createDocumentFragment();
@@ -267,7 +280,8 @@ export function createWorldMap() {
       const title = svg("title");
       title.textContent =
         `${entry.city.name}, ${entry.city.country} — ` +
-        `${entry.readout.time} ${entry.readout.offsetLabel}, ${PHASE_TITLE[entry.readout.phase]}`;
+        `${entry.readout.time} ${entry.readout.offsetLabel}, ${PHASE_TITLE[entry.readout.phase]}` +
+        (entry.reading ? ` — ${entry.reading.short} ${entry.reading.label}` : "");
       g.appendChild(title);
 
       if (entry.slot) {
@@ -285,7 +299,7 @@ export function createWorldMap() {
           y: entry.y + entry.slot.time,
           "text-anchor": "middle",
         });
-        time.textContent = entry.readout.time;
+        time.textContent = entry.timeText;
 
         g.append(name, time);
       }
@@ -299,6 +313,7 @@ export function createWorldMap() {
     cities = [],
     showPins = true,
     clockFormat = "auto",
+    weather = {},
     avoid = [],
   } = {}) {
     const sub = subsolarPoint(date);
@@ -309,7 +324,7 @@ export function createWorldMap() {
     );
     if (showPins && cities.length) {
       const blocked = avoid.map(toMapUnits).filter(Boolean);
-      renderPins(cities, date, clockFormat, sub, blocked);
+      renderPins(cities, date, clockFormat, sub, blocked, weather);
     } else {
       pins.replaceChildren();
     }
