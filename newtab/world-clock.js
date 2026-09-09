@@ -193,6 +193,9 @@ export function createWorldMap() {
   const pins = svg("g", { class: "wm-pins" });
   root.appendChild(pins);
 
+  const disastersLayer = svg("g", { class: "wm-disasters" });
+  root.appendChild(disastersLayer);
+
   // Candidate label positions, tried in order, so pins packed close together
   // (Europe, east Asia) do not stack their labels on top of each other.
   const LABEL_SLOTS = [
@@ -308,6 +311,45 @@ export function createWorldMap() {
     pins.replaceChildren(frag);
   }
 
+  function renderDisasters(events) {
+    const frag = document.createDocumentFragment();
+    for (const event of events) {
+      if (!Number.isFinite(event.lat) || !Number.isFinite(event.lon)) continue;
+      const x = projectX(event.lon);
+      const y = projectY(event.lat);
+      const g = svg("g", {
+        class: `wm-disaster is-${event.type}`,
+        transform: `translate(${x.toFixed(2)} ${y.toFixed(2)})`,
+      });
+
+      // Diamond marker — distinct from circular city pins.
+      g.appendChild(
+        svg("polygon", {
+          class: "wm-disaster-halo",
+          points: "0,-3.4 3.4,0 0,3.4 -3.4,0",
+        })
+      );
+      g.appendChild(
+        svg("polygon", {
+          class: "wm-disaster-core",
+          points: "0,-1.55 1.55,0 0,1.55 -1.55,0",
+        })
+      );
+
+      const title = svg("title");
+      const magBit =
+        event.type === "earthquake" && event.magnitude != null
+          ? ` M${Number(event.magnitude).toFixed(1)}`
+          : event.magnitude != null && event.magnitudeUnit
+            ? ` · ${event.magnitude} ${event.magnitudeUnit}`
+            : "";
+      title.textContent = `${event.title}${magBit} — ${event.source || "Alert"}`;
+      g.appendChild(title);
+      frag.appendChild(g);
+    }
+    disastersLayer.replaceChildren(frag);
+  }
+
   function update({
     date = new Date(),
     cities = [],
@@ -315,6 +357,8 @@ export function createWorldMap() {
     clockFormat = "auto",
     weather = {},
     avoid = [],
+    showDisasters = false,
+    disasters = [],
   } = {}) {
     const sub = subsolarPoint(date);
     night.setAttribute("d", terminatorPath(sub));
@@ -327,6 +371,11 @@ export function createWorldMap() {
       renderPins(cities, date, clockFormat, sub, blocked, weather);
     } else {
       pins.replaceChildren();
+    }
+    if (showDisasters && disasters.length) {
+      renderDisasters(disasters);
+    } else {
+      disastersLayer.replaceChildren();
     }
   }
 

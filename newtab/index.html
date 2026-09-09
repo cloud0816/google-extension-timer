@@ -182,6 +182,10 @@
                 <input type="checkbox" id="worldShowWeather" />
                 <span>Show weather</span>
               </label>
+              <label class="switch">
+                <input type="checkbox" id="worldShowDisasters" />
+                <span>Show major natural disasters on the map</span>
+              </label>
             </div>
 
             <form class="form" id="worldForm">
@@ -215,6 +219,8 @@
               the world where the sun is down and marks the point it is overhead.
             </p>
             <p class="hint" id="worldWeatherStatus"></p>
+            <p class="hint" id="worldDisasterStatus"></p>
+            <ul class="list disaster-list" id="worldDisasterList" hidden></ul>
           </div>
         </div>
       </div>

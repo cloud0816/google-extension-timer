@@ -13,6 +13,11 @@ import {
   formatTemp,
   iconMarkup,
 } from "./weather.js";
+import {
+  fetchDisasters,
+  formatDisasterMeta,
+  formatDisasterWhen,
+} from "./disasters.js";
 
 const STORAGE_KEY = "focusClockData";
 
@@ -21,6 +26,10 @@ const STORAGE_KEY = "focusClockData";
 const WEATHER_KEY = "focusClockWeather";
 const WEATHER_MAX_AGE_MS = 30 * 60 * 1000;
 const WEATHER_RETRY_MS = 5 * 60 * 1000;
+
+const DISASTERS_KEY = "focusClockDisasters";
+const DISASTERS_MAX_AGE_MS = 30 * 60 * 1000;
+const DISASTERS_RETRY_MS = 5 * 60 * 1000;
 
 const CLOCK_FORMATS = ["auto", "12", "24"];
 const TEMP_UNITS = ["celsius", "fahrenheit"];
@@ -31,6 +40,7 @@ const defaultWorld = () => ({
   clockFormat: "auto",
   showPins: true,
   showWeather: true,
+  showDisasters: false,
   tempUnit: defaultTempUnit(),
 });
 
@@ -56,6 +66,7 @@ function normalizeWorld(world) {
     clockFormat: CLOCK_FORMATS.includes(world.clockFormat) ? world.clockFormat : "auto",
     showPins: world.showPins !== false,
     showWeather: world.showWeather !== false,
+    showDisasters: world.showDisasters === true,
     tempUnit: TEMP_UNITS.includes(world.tempUnit) ? world.tempUnit : base.tempUnit,
   };
 }
@@ -384,6 +395,109 @@ function weatherStatusText() {
     : `Weather from Open-Meteo, updated ${when}.`;
 }
 
+/* ---------- Natural disasters ---------- */
+
+let disasterCache = loadDisasterCache();
+let disasterPending = false;
+let disasterRetryAfter = 0;
+let disasterFailed = false;
+
+function loadDisasterCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DISASTERS_KEY) || "null");
+    if (!raw || !Array.isArray(raw.events)) throw new Error("empty");
+    return { fetchedAt: Number(raw.fetchedAt) || 0, events: raw.events };
+  } catch {
+    return { fetchedAt: 0, events: [] };
+  }
+}
+
+async function refreshDisasters({ force = false } = {}) {
+  if (!state.world.showDisasters) return;
+  if (disasterPending) return;
+
+  const stale = Date.now() - disasterCache.fetchedAt > DISASTERS_MAX_AGE_MS;
+  if (!force && !stale && disasterCache.events.length) return;
+  if (!force && Date.now() < disasterRetryAfter) return;
+
+  disasterPending = true;
+  try {
+    const events = await fetchDisasters();
+    disasterCache = { fetchedAt: Date.now(), events };
+    disasterFailed = false;
+    disasterRetryAfter = 0;
+    try {
+      localStorage.setItem(DISASTERS_KEY, JSON.stringify(disasterCache));
+    } catch {
+      /* quota or private mode */
+    }
+    renderWorldClock(new Date(), true);
+    renderWorldSettings();
+  } catch {
+    disasterFailed = true;
+    disasterRetryAfter = Date.now() + DISASTERS_RETRY_MS;
+    renderWorldSettings();
+  } finally {
+    disasterPending = false;
+  }
+}
+
+function disastersForMap() {
+  return state.world.showDisasters ? disasterCache.events : [];
+}
+
+function disasterStatusText() {
+  if (!state.world.showDisasters) return "Major natural disasters are off.";
+  if (!disasterCache.fetchedAt) {
+    return disasterFailed
+      ? "Disasters unavailable — check your connection."
+      : "Fetching major natural disasters…";
+  }
+  const when = relativeAge(Date.now() - disasterCache.fetchedAt);
+  const count = disasterCache.events.length;
+  const summary =
+    count === 0
+      ? "No major open events right now"
+      : `${count} major event${count === 1 ? "" : "s"} on the map`;
+  return disasterFailed
+    ? `${summary} from ${when}; the last refresh failed.`
+    : `${summary} · NASA EONET / USGS · updated ${when}.`;
+}
+
+function renderDisasterList() {
+  const list = document.getElementById("worldDisasterList");
+  const on = state.world.showDisasters;
+  list.hidden = !on;
+  if (!on) {
+    list.replaceChildren();
+    return;
+  }
+  const events = disasterCache.events;
+  if (!events.length) {
+    list.innerHTML = `<li class="empty-note">${
+      disasterFailed ? "Could not load disasters" : "No major events right now"
+    }</li>`;
+    return;
+  }
+  list.replaceChildren(
+    ...events.slice(0, 12).map((event) => {
+      const li = document.createElement("li");
+      li.className = "list-item";
+      const info = document.createElement("div");
+      info.className = "info";
+      const title = document.createElement("div");
+      title.className = "title";
+      title.textContent = event.title;
+      const sub = document.createElement("div");
+      sub.className = "sub";
+      sub.textContent = `${formatDisasterMeta(event)} · ${formatDisasterWhen(event)} · ${event.source}`;
+      info.append(title, sub);
+      li.appendChild(info);
+      return li;
+    })
+  );
+}
+
 /* ---------- World clock ---------- */
 
 const PHASE_ICON = {
@@ -506,7 +620,8 @@ function renderWorldClock(now = new Date(), force = false) {
   const settingsKey =
     `${world.enabled}|${world.showPins}|${world.clockFormat}|` +
     `${world.cities.join(",")}|${state.background.type}|` +
-    `${world.showWeather}|${world.tempUnit}|${weatherCache.fetchedAt}`;
+    `${world.showWeather}|${world.tempUnit}|${weatherCache.fetchedAt}|` +
+    `${world.showDisasters}|${disasterCache.fetchedAt}|${disasterCache.events.length}`;
   const cardsKey = `${settingsKey}|${Math.floor(now.getTime() / 60000)}`;
   const mapKey = `${settingsKey}|${Math.floor(now.getTime() / 15000)}`;
   if (!force && cardsKey === lastCardsKey && mapKey === lastMapKey) return;
@@ -532,6 +647,8 @@ function renderWorldClock(now = new Date(), force = false) {
         clockFormat: world.clockFormat,
         weather: weatherForMap(),
         avoid: contentRects(),
+        showDisasters: world.showDisasters,
+        disasters: disastersForMap(),
       });
     }
   }
@@ -542,9 +659,12 @@ function renderWorldSettings() {
   document.getElementById("worldEnabled").checked = world.enabled;
   document.getElementById("worldShowPins").checked = world.showPins;
   document.getElementById("worldShowWeather").checked = world.showWeather;
+  document.getElementById("worldShowDisasters").checked = world.showDisasters;
   document.getElementById("worldFormat").value = world.clockFormat;
   document.getElementById("worldTempUnit").value = world.tempUnit;
   document.getElementById("worldWeatherStatus").textContent = weatherStatusText();
+  document.getElementById("worldDisasterStatus").textContent = disasterStatusText();
+  renderDisasterList();
 
   const select = document.getElementById("worldCitySelect");
   const chosen = new Set(world.cities);
@@ -1019,6 +1139,7 @@ function persist() {
   renderAll();
   // Cheap unless a newly added city has no reading yet, or the cache went stale.
   refreshWeather();
+  refreshDisasters();
 }
 
 function renderAll() {
@@ -1078,6 +1199,15 @@ function init() {
   document.getElementById("worldShowWeather").addEventListener("change", (e) => {
     state.world.showWeather = e.target.checked;
     persist();
+  });
+  document.getElementById("worldShowDisasters").addEventListener("change", (e) => {
+    state.world.showDisasters = e.target.checked;
+    persist();
+    if (state.world.showDisasters) refreshDisasters({ force: true });
+    else {
+      renderWorldClock(new Date(), true);
+      renderWorldSettings();
+    }
   });
   document.getElementById("worldFormat").addEventListener("change", (e) => {
     state.world.clockFormat = CLOCK_FORMATS.includes(e.target.value) ? e.target.value : "auto";
@@ -1220,6 +1350,8 @@ function init() {
 
   refreshWeather();
   setInterval(() => refreshWeather(), 5 * 60 * 1000);
+  refreshDisasters();
+  setInterval(() => refreshDisasters(), 5 * 60 * 1000);
 
   // Label placement depends on where the content lands, so redo it on resize.
   let resizeTimer = 0;
