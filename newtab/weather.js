@@ -135,3 +135,62 @@ export async function fetchWeather(cities, { signal } = {}) {
   });
   return out;
 }
+
+/**
+ * Weather and IANA timezone for an arbitrary map click. `timezone=auto`
+ * lets Open-Meteo resolve the zone so the pin can show local time.
+ */
+export async function fetchPointWeather(lat, lon, { signal } = {}) {
+  const url = new URL(ENDPOINT);
+  url.searchParams.set("latitude", String(lat));
+  url.searchParams.set("longitude", String(lon));
+  url.searchParams.set("current", "temperature_2m,weather_code");
+  url.searchParams.set("timezone", "auto");
+
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw new Error(`Open-Meteo responded ${res.status}`);
+
+  const body = await res.json();
+  const current = body?.current;
+  if (!current || typeof current.temperature_2m !== "number") {
+    throw new Error("No weather for this point");
+  }
+  return {
+    tempC: current.temperature_2m,
+    code: current.weather_code ?? 0,
+    timezone: body.timezone || "UTC",
+  };
+}
+
+function shortCountry(name) {
+  if (!name) return "";
+  if (name === "Russian Federation") return "Russia";
+  if (name.startsWith("United Kingdom")) return "United Kingdom";
+  if (name.startsWith("United States")) return "United States";
+  if (name.startsWith("Korea (the Republic")) return "South Korea";
+  if (name.startsWith("Korea (the Democratic")) return "North Korea";
+  return name.replace(/ \(the.+$/, "").replace(/ of .+$/, "");
+}
+
+/**
+ * City + country for a map click. Uses BigDataCloud's keyless reverse
+ * geocoder (CORS-open). Returns null if nothing useful is found.
+ */
+export async function reverseGeocode(lat, lon, { signal } = {}) {
+  const url = new URL("https://api.bigdatacloud.net/data/reverse-geocode-client");
+  url.searchParams.set("latitude", String(lat));
+  url.searchParams.set("longitude", String(lon));
+  url.searchParams.set("localityLanguage", "en");
+
+  const res = await fetch(url, { signal, credentials: "omit" });
+  if (!res.ok) return null;
+  const body = await res.json();
+  const city = body.city || body.locality || body.principalSubdivision || "";
+  const country = shortCountry(body.countryName);
+  if (!city && !country) return null;
+  return {
+    city: city || country,
+    country,
+    name: [city, country].filter(Boolean).join(", "),
+  };
+}

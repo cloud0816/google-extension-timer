@@ -9,9 +9,11 @@ import { createWorldMap, cityReadout } from "./world-clock.js";
 import {
   defaultTempUnit,
   describeCode,
+  fetchPointWeather,
   fetchWeather,
   formatTemp,
   iconMarkup,
+  reverseGeocode,
 } from "./weather.js";
 import {
   fetchDisasters,
@@ -33,6 +35,7 @@ const DISASTERS_RETRY_MS = 5 * 60 * 1000;
 
 const CLOCK_FORMATS = ["auto", "12", "24"];
 const TEMP_UNITS = ["celsius", "fahrenheit"];
+const MAP_STYLES = ["political", "terrestrial"];
 
 const defaultWorld = () => ({
   enabled: true,
@@ -41,6 +44,8 @@ const defaultWorld = () => ({
   showPins: true,
   showWeather: true,
   showDisasters: false,
+  mapStyle: "political",
+  droppedPin: null,
   tempUnit: defaultTempUnit(),
 });
 
@@ -52,6 +57,27 @@ const defaultState = () => ({
   stopwatches: [],
   world: defaultWorld(),
 });
+
+function formatCoords(lat, lon) {
+  const ns = `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"}`;
+  const ew = `${Math.abs(lon).toFixed(1)}°${lon >= 0 ? "E" : "W"}`;
+  return `${ns}, ${ew}`;
+}
+
+function normalizeDroppedPin(pin) {
+  if (!pin || typeof pin !== "object") return null;
+  const lat = Number(pin.lat);
+  const lon = Number(pin.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return {
+    lat,
+    lon,
+    name: typeof pin.name === "string" && pin.name.trim() ? pin.name.trim() : formatCoords(lat, lon),
+    city: typeof pin.city === "string" ? pin.city : "",
+    country: typeof pin.country === "string" ? pin.country : "",
+    tz: typeof pin.tz === "string" && pin.tz ? pin.tz : "UTC",
+  };
+}
 
 /** Drops cities that are no longer in the catalogue and keeps an empty list empty. */
 function normalizeWorld(world) {
@@ -67,6 +93,8 @@ function normalizeWorld(world) {
     showPins: world.showPins !== false,
     showWeather: world.showWeather !== false,
     showDisasters: world.showDisasters === true,
+    mapStyle: MAP_STYLES.includes(world.mapStyle) ? world.mapStyle : "political",
+    droppedPin: normalizeDroppedPin(world.droppedPin),
     tempUnit: TEMP_UNITS.includes(world.tempUnit) ? world.tempUnit : base.tempUnit,
   };
 }
@@ -529,16 +557,128 @@ function ensureWorldMap() {
   return worldMap;
 }
 
-/**
- * Areas the map should keep its labels out of, so a city name never ends up
- * half-hidden behind the clock or a card.
- */
-function contentRects() {
-  return [".top-bar", ".hero", ".world-row", ".status-row"]
-    .map((sel) => document.querySelector(sel))
-    .filter((node) => node && !node.hidden)
-    .map((node) => node.getBoundingClientRect())
-    .filter((rect) => rect.width > 0 && rect.height > 0);
+let pickMode = false;
+let droppedWeather = null;
+let droppedWeatherAt = 0;
+
+function setPickMode(on) {
+  pickMode = Boolean(on);
+  const btn = document.getElementById("pinBtn");
+  const hint = document.getElementById("pinHint");
+  btn.classList.toggle("is-active", pickMode);
+  btn.setAttribute("aria-pressed", pickMode ? "true" : "false");
+  hint.hidden = !pickMode;
+  document.body.classList.toggle("is-pin-picking", pickMode);
+  if (pickMode && state.background.type !== "world") {
+    state.background = { ...state.background, type: "world" };
+    persist();
+  }
+  ensureWorldMap().setPickMode(pickMode, pickMode ? onMapPick : null);
+}
+
+function droppedPinView(now = new Date()) {
+  const pin = state.world.droppedPin;
+  if (!pin) return null;
+  const city = { id: "drop", name: pin.name, lat: pin.lat, lon: pin.lon, tz: pin.tz || "UTC", country: "" };
+  let readout;
+  try {
+    readout = cityReadout(city, now, state.world.clockFormat);
+  } catch {
+    readout = cityReadout({ ...city, tz: "UTC" }, now, state.world.clockFormat);
+  }
+  const temp = droppedWeather && formatTemp(droppedWeather.tempC, state.world.tempUnit);
+  return {
+    ...pin,
+    readout,
+    timeText: temp ? `${readout.time} · ${temp}` : readout.time,
+  };
+}
+
+function renderInspectCard(now = new Date()) {
+  const card = document.getElementById("inspectCard");
+  const pin = state.world.droppedPin;
+  if (!pin) {
+    card.hidden = true;
+    if (worldMap) worldMap.setDroppedPin(null);
+    return;
+  }
+  const view = droppedPinView(now);
+  document.getElementById("inspectName").textContent =
+    pin.city && pin.country ? `${pin.city}, ${pin.country}` : pin.name;
+  document.getElementById("inspectTime").textContent = view.readout.time;
+  const weatherEl = document.getElementById("inspectWeather");
+  if (droppedWeather) {
+    const { label, icon } = describeCode(droppedWeather.code);
+    const temp = formatTemp(droppedWeather.tempC, state.world.tempUnit, true);
+    weatherEl.innerHTML = `${iconMarkup(icon, view.readout.phase !== "day")}<span>${temp} ${label}</span>`;
+  } else {
+    weatherEl.textContent = "Fetching weather…";
+  }
+  document.getElementById("inspectMeta").textContent =
+    `${view.readout.dayLabel} · ${view.readout.offsetLabel} · ${formatCoords(pin.lat, pin.lon)}`;
+  card.hidden = false;
+  if (worldMap) worldMap.setDroppedPin(view);
+}
+
+async function refreshDroppedWeather({ force = false } = {}) {
+  const pin = state.world.droppedPin;
+  if (!pin) {
+    droppedWeather = null;
+    return;
+  }
+  if (!force && droppedWeather && Date.now() - droppedWeatherAt < WEATHER_MAX_AGE_MS) return;
+  try {
+    const reading = await fetchPointWeather(pin.lat, pin.lon);
+    droppedWeather = { tempC: reading.tempC, code: reading.code };
+    droppedWeatherAt = Date.now();
+    if (reading.timezone && reading.timezone !== pin.tz) {
+      state.world.droppedPin = { ...pin, tz: reading.timezone };
+      saveState(state);
+    }
+    renderInspectCard();
+  } catch {
+    if (!droppedWeather) {
+      document.getElementById("inspectWeather").textContent = "Weather unavailable";
+    }
+  }
+}
+
+async function onMapPick({ lat, lon }) {
+  setPickMode(false);
+  const coords = formatCoords(lat, lon);
+  state.world.droppedPin = { lat, lon, name: coords, tz: "UTC" };
+  droppedWeather = null;
+  droppedWeatherAt = 0;
+  persist();
+  renderInspectCard();
+  const [weatherHit, placeHit] = await Promise.allSettled([
+    fetchPointWeather(lat, lon),
+    reverseGeocode(lat, lon),
+  ]);
+  const reading = weatherHit.status === "fulfilled" ? weatherHit.value : null;
+  const place = placeHit.status === "fulfilled" ? placeHit.value : null;
+  if (reading) {
+    droppedWeather = { tempC: reading.tempC, code: reading.code };
+    droppedWeatherAt = Date.now();
+  }
+  state.world.droppedPin = {
+    lat,
+    lon,
+    name: place?.name || coords,
+    city: place?.city || "",
+    country: place?.country || "",
+    tz: reading?.timezone || "UTC",
+  };
+  saveState(state);
+  renderInspectCard();
+}
+
+function clearDroppedPin() {
+  state.world.droppedPin = null;
+  droppedWeather = null;
+  droppedWeatherAt = 0;
+  persist();
+  renderInspectCard();
 }
 
 /** Chosen cities with their current readouts, ordered west to east. */
@@ -620,7 +760,7 @@ function renderWorldClock(now = new Date(), force = false) {
   const settingsKey =
     `${world.enabled}|${world.showPins}|${world.clockFormat}|` +
     `${world.cities.join(",")}|${state.background.type}|` +
-    `${world.showWeather}|${world.tempUnit}|${weatherCache.fetchedAt}|` +
+    `${world.showWeather}|${world.tempUnit}|${world.mapStyle}|${weatherCache.fetchedAt}|` +
     `${world.showDisasters}|${disasterCache.fetchedAt}|${disasterCache.events.length}`;
   const cardsKey = `${settingsKey}|${Math.floor(now.getTime() / 60000)}`;
   const mapKey = `${settingsKey}|${Math.floor(now.getTime() / 15000)}`;
@@ -646,9 +786,9 @@ function renderWorldClock(now = new Date(), force = false) {
         showPins: world.showPins,
         clockFormat: world.clockFormat,
         weather: weatherForMap(),
-        avoid: contentRects(),
         showDisasters: world.showDisasters,
         disasters: disastersForMap(),
+        mapStyle: world.mapStyle,
       });
     }
   }
@@ -662,6 +802,7 @@ function renderWorldSettings() {
   document.getElementById("worldShowDisasters").checked = world.showDisasters;
   document.getElementById("worldFormat").value = world.clockFormat;
   document.getElementById("worldTempUnit").value = world.tempUnit;
+  document.getElementById("worldMapStyle").value = world.mapStyle;
   document.getElementById("worldWeatherStatus").textContent = weatherStatusText();
   document.getElementById("worldDisasterStatus").textContent = disasterStatusText();
   renderDisasterList();
@@ -1147,6 +1288,7 @@ function renderAll() {
   applyBackground();
   renderStatus();
   renderWorldClock(new Date(), true);
+  renderInspectCard();
   renderWorldSettings();
   renderAlarmList();
   renderTimerList();
@@ -1218,12 +1360,34 @@ function init() {
     state.world.tempUnit = TEMP_UNITS.includes(e.target.value) ? e.target.value : "celsius";
     persist();
   });
+  document.getElementById("worldMapStyle").addEventListener("change", (e) => {
+    state.world.mapStyle = MAP_STYLES.includes(e.target.value) ? e.target.value : "political";
+    persist();
+  });
   document.getElementById("worldForm").addEventListener("submit", (e) => {
     e.preventDefault();
     const id = document.getElementById("worldCitySelect").value;
     if (!id || !CITY_BY_ID.has(id) || state.world.cities.includes(id)) return;
     state.world.cities.push(id);
     persist();
+  });
+  document.getElementById("worldRow").addEventListener(
+    "wheel",
+    (e) => {
+      const row = e.currentTarget;
+      if (row.scrollWidth <= row.clientWidth) return;
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      row.scrollLeft += e.deltaY;
+    },
+    { passive: false }
+  );
+
+  document.getElementById("pinBtn").addEventListener("click", () => {
+    setPickMode(!pickMode);
+  });
+  document.getElementById("inspectClose").addEventListener("click", () => {
+    clearDroppedPin();
   });
 
   // Settings
@@ -1352,6 +1516,8 @@ function init() {
   setInterval(() => refreshWeather(), 5 * 60 * 1000);
   refreshDisasters();
   setInterval(() => refreshDisasters(), 5 * 60 * 1000);
+  refreshDroppedWeather();
+  setInterval(() => refreshDroppedWeather(), 5 * 60 * 1000);
 
   // Label placement depends on where the content lands, so redo it on resize.
   let resizeTimer = 0;
@@ -1365,6 +1531,7 @@ function init() {
     checkExpirations();
     renderStatus();
     renderWorldClock();
+    if (state.world.droppedPin) renderInspectCard();
     const settingsOpen = document.getElementById("settingsDialog").open;
     if (settingsOpen) {
       renderAlarmList();

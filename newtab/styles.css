@@ -60,6 +60,12 @@ body {
   position: relative;
 }
 
+body.is-map-panning {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grabbing;
+}
+
 .bg-layer {
   position: fixed;
   inset: 0;
@@ -116,6 +122,12 @@ body {
 .icon-btn:hover {
   transform: translateY(-1px);
   border-color: var(--accent);
+}
+
+.icon-btn.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .icon {
@@ -773,6 +785,139 @@ body.has-world-bg .wall-date {
   width: 100%;
   height: 100%;
   display: block;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.world-map text,
+.world-map * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.world-map.is-panning {
+  cursor: grabbing;
+}
+
+.world-map.is-picking,
+body.is-pin-picking .world-map {
+  cursor: crosshair;
+}
+
+.wm-drop-mark {
+  fill: #ef4444;
+  stroke: rgba(0, 0, 0, 0.35);
+  stroke-width: 0.35;
+}
+
+.wm-drop-dot {
+  fill: #fff8f8;
+}
+
+.pin-hint {
+  position: fixed;
+  top: 4.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  backdrop-filter: blur(12px);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.inspect-card {
+  position: fixed;
+  top: 4.6rem;
+  left: 1.25rem;
+  z-index: 4;
+  width: min(16.5rem, calc(100vw - 2.5rem));
+  padding: 0.75rem 0.8rem 0.8rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow);
+}
+
+.inspect-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.inspect-head strong {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.92rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspect-close {
+  width: 1.8rem;
+  height: 1.8rem;
+  flex-shrink: 0;
+}
+
+.inspect-time {
+  margin-top: 0.35rem;
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.inspect-weather {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  font-size: 0.88rem;
+}
+
+.inspect-weather svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
+}
+
+.inspect-meta {
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.world-map.is-terrestrial .wm-ocean {
+  fill: url(#wm-ocean-deep-light);
+}
+
+.world-map.is-terrestrial .wm-land {
+  fill: url(#wm-terrain);
+}
+
+.world-map.is-terrestrial .wm-borders {
+  display: none;
+}
+
+.world-map.is-terrestrial .wm-graticule {
+  opacity: 0.28;
+}
+
+html[data-theme="dark"] .world-map.is-terrestrial .wm-ocean {
+  fill: url(#wm-ocean-deep);
+}
+
+html[data-theme="dark"] .world-map.is-terrestrial .wm-land {
+  fill: url(#wm-terrain-dark);
 }
 
 .wm-ocean {
@@ -886,11 +1031,25 @@ body.has-world-bg .wall-date {
   margin-top: 0.35rem;
 }
 
-/* City strip on the home view */
+/* City strip on the home view — one row, scroll when they overflow */
 .world-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  display: flex;
+  flex-wrap: nowrap;
   gap: 0.6rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.2rem;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent;
+}
+
+.world-row::-webkit-scrollbar {
+  height: 6px;
+}
+
+.world-row::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 28%, transparent);
+  border-radius: 999px;
 }
 
 .world-card {
@@ -904,7 +1063,9 @@ body.has-world-bg .wall-date {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  min-width: 0;
+  flex: 0 0 9.4rem;
+  width: 9.4rem;
+  min-width: 9.4rem;
 }
 
 .world-card.is-day {
@@ -1096,6 +1257,13 @@ body.has-world-bg .stage {
   min-height: calc(100vh - 8.5rem);
   justify-content: space-between;
   gap: 0.8rem;
+  pointer-events: none;
+}
+
+body.has-world-bg .hero,
+body.has-world-bg .world-row,
+body.has-world-bg .status-row {
+  pointer-events: auto;
 }
 
 body.has-world-bg .hero {
@@ -1115,6 +1283,7 @@ body.has-world-bg .wall-date {
 /* Both rows ride together at the bottom of the viewport. */
 body.has-world-bg .world-row {
   margin-top: auto;
+  width: 100%;
 }
 
 body.has-world-bg .status-card {
