@@ -35,7 +35,28 @@ const DISASTERS_RETRY_MS = 5 * 60 * 1000;
 
 const CLOCK_FORMATS = ["auto", "12", "24"];
 const TEMP_UNITS = ["celsius", "fahrenheit"];
-const MAP_STYLES = ["political", "terrestrial"];
+const MAP_STYLES = ["political", "terrestrial", "nautical"];
+const TIME_OFFSET_MIN = -96;
+const TIME_OFFSET_MAX = 96;
+
+let timeOffsetHours = 0;
+let scrubSyncing = false;
+let scrubDrag = null;
+
+function viewNow() {
+  return new Date(Date.now() + timeOffsetHours * 3600 * 1000);
+}
+
+function offsetHoursLabel(hours) {
+  if (hours === 0) return "now";
+  const sign = hours > 0 ? "+" : "−";
+  const abs = Math.abs(hours);
+  const days = Math.floor(abs / 24);
+  const rest = abs % 24;
+  if (days && rest) return `${sign}${days}d ${rest}h`;
+  if (days) return `${sign}${days}d`;
+  return `${sign}${abs}h`;
+}
 
 const defaultWorld = () => ({
   enabled: true,
@@ -300,7 +321,7 @@ function applyBackground() {
 /* ---------- Wall clock ---------- */
 
 function tickWallClock() {
-  const now = new Date();
+  const now = viewNow();
   const clock = document.getElementById("wallClock");
   clock.textContent = now.toLocaleTimeString(undefined, {
     hour: "2-digit",
@@ -313,6 +334,14 @@ function tickWallClock() {
     day: "numeric",
     year: "numeric",
   });
+  const offsetEl = document.getElementById("wallOffset");
+  if (timeOffsetHours === 0) {
+    offsetEl.hidden = true;
+    offsetEl.textContent = "";
+  } else {
+    offsetEl.hidden = false;
+    offsetEl.textContent = `${offsetHoursLabel(timeOffsetHours)} from now`;
+  }
 }
 
 /* ---------- Weather ---------- */
@@ -370,7 +399,7 @@ async function refreshWeather({ force = false } = {}) {
       } catch {
         /* quota or private mode: the in-memory copy still works for this tab */
       }
-      renderWorldClock(new Date(), true);
+      renderWorldClock(viewNow(), true);
       renderWorldSettings();
     }
   } catch {
@@ -459,7 +488,7 @@ async function refreshDisasters({ force = false } = {}) {
     } catch {
       /* quota or private mode */
     }
-    renderWorldClock(new Date(), true);
+    renderWorldClock(viewNow(), true);
     renderWorldSettings();
   } catch {
     disasterFailed = true;
@@ -576,7 +605,7 @@ function setPickMode(on) {
   ensureWorldMap().setPickMode(pickMode, pickMode ? onMapPick : null);
 }
 
-function droppedPinView(now = new Date()) {
+function droppedPinView(now = viewNow()) {
   const pin = state.world.droppedPin;
   if (!pin) return null;
   const city = { id: "drop", name: pin.name, lat: pin.lat, lon: pin.lon, tz: pin.tz || "UTC", country: "" };
@@ -594,7 +623,7 @@ function droppedPinView(now = new Date()) {
   };
 }
 
-function renderInspectCard(now = new Date()) {
+function renderInspectCard(now = viewNow()) {
   const card = document.getElementById("inspectCard");
   const pin = state.world.droppedPin;
   if (!pin) {
@@ -755,13 +784,14 @@ function worldCard({ city, readout }) {
  * Cards only change once a minute and the terminator crawls a quarter of a
  * degree per minute, so both are keyed rather than rebuilt on every 200ms tick.
  */
-function renderWorldClock(now = new Date(), force = false) {
+function renderWorldClock(now = viewNow(), force = false) {
   const world = state.world;
   const settingsKey =
     `${world.enabled}|${world.showPins}|${world.clockFormat}|` +
     `${world.cities.join(",")}|${state.background.type}|` +
     `${world.showWeather}|${world.tempUnit}|${world.mapStyle}|${weatherCache.fetchedAt}|` +
-    `${world.showDisasters}|${disasterCache.fetchedAt}|${disasterCache.events.length}`;
+    `${world.showDisasters}|${disasterCache.fetchedAt}|${disasterCache.events.length}|` +
+    `${timeOffsetHours}`;
   const cardsKey = `${settingsKey}|${Math.floor(now.getTime() / 60000)}`;
   const mapKey = `${settingsKey}|${Math.floor(now.getTime() / 15000)}`;
   if (!force && cardsKey === lastCardsKey && mapKey === lastMapKey) return;
@@ -827,7 +857,7 @@ function renderWorldSettings() {
     list.innerHTML = `<li class="empty-note">No cities yet</li>`;
     return;
   }
-  const now = new Date();
+  const now = viewNow();
   const sub = subsolarPoint(now);
   list.replaceChildren(
     ...worldEntries(now, sub).map(({ city, readout }) => {
@@ -1273,6 +1303,156 @@ function checkExpirations() {
   if (changed) saveState(state);
 }
 
+/* ---------- Time offset scrubber ---------- */
+
+function isEditableTarget(el) {
+  if (!el || el === document.body) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+function anyDialogOpen() {
+  return Boolean(document.querySelector("dialog[open]"));
+}
+
+function scrubTickWidth() {
+  const tick = document.querySelector("#timeScrubTrack .time-scrub-tick");
+  return tick ? tick.getBoundingClientRect().width : 38.4;
+}
+
+function applyTimeOffsetUi() {
+  const scrub = document.getElementById("timeScrub");
+  const show = state.world.enabled;
+  scrub.hidden = !show;
+  document.body.classList.toggle("has-time-scrub", show);
+  document.body.classList.toggle("has-time-offset", timeOffsetHours !== 0);
+  document.getElementById("timeScrubNow").hidden = timeOffsetHours === 0;
+  const label = offsetHoursLabel(timeOffsetHours);
+  document.getElementById("timeScrubReadout").textContent = label;
+  const scroller = document.getElementById("timeScrubScroller");
+  scroller.setAttribute("aria-valuenow", String(timeOffsetHours));
+  scroller.setAttribute("aria-valuetext", label);
+}
+
+function syncTimeScrubScroll() {
+  const scroller = document.getElementById("timeScrubScroller");
+  if (!scroller || document.getElementById("timeScrub").hidden) return;
+  const apply = () => {
+    if (document.getElementById("timeScrub").hidden) return;
+    scrubSyncing = true;
+    scroller.scrollLeft = (timeOffsetHours - TIME_OFFSET_MIN) * scrubTickWidth();
+    requestAnimationFrame(() => {
+      scrubSyncing = false;
+    });
+  };
+  apply();
+  requestAnimationFrame(apply);
+}
+
+function setTimeOffset(hours, { fromScroll = false } = {}) {
+  const next = Math.min(
+    TIME_OFFSET_MAX,
+    Math.max(TIME_OFFSET_MIN, Math.round(Number(hours) || 0))
+  );
+  const changed = next !== timeOffsetHours;
+  timeOffsetHours = next;
+  applyTimeOffsetUi();
+  if (!fromScroll) syncTimeScrubScroll();
+  if (changed) {
+    tickWallClock();
+    renderWorldClock(viewNow(), true);
+    if (state.world.droppedPin) renderInspectCard(viewNow());
+  }
+}
+
+function buildTimeScrub() {
+  const track = document.getElementById("timeScrubTrack");
+  const frag = document.createDocumentFragment();
+  for (let h = TIME_OFFSET_MIN; h <= TIME_OFFSET_MAX; h++) {
+    const tick = document.createElement("div");
+    tick.className = "time-scrub-tick";
+    if (h === 0) tick.classList.add("is-zero");
+    if (h % 6 === 0) tick.classList.add("is-major");
+    if (h !== 0 && h % 24 === 0) tick.classList.add("is-day");
+    tick.dataset.hour = String(h);
+    if (h !== 0 && h % 24 === 0) {
+      const day = document.createElement("span");
+      day.className = "time-scrub-day";
+      const d = h / 24;
+      day.textContent = d > 0 ? `+${d}d` : `${d}d`;
+      tick.appendChild(day);
+    }
+    const hour = document.createElement("span");
+    hour.className = "time-scrub-hour";
+    hour.textContent = String(h);
+    tick.appendChild(hour);
+    frag.appendChild(tick);
+  }
+  track.replaceChildren(frag);
+}
+
+function bindTimeScrub() {
+  const scroller = document.getElementById("timeScrubScroller");
+
+  scroller.addEventListener("scroll", () => {
+    if (scrubSyncing) return;
+    const w = scrubTickWidth();
+    if (!w) return;
+    setTimeOffset(TIME_OFFSET_MIN + Math.round(scroller.scrollLeft / w), { fromScroll: true });
+  });
+
+  scroller.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      scroller.scrollLeft += delta;
+    },
+    { passive: false }
+  );
+
+  scroller.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    scrubDrag = { x: e.clientX, sl: scroller.scrollLeft, moved: false };
+    scroller.classList.add("is-dragging");
+    scroller.setPointerCapture(e.pointerId);
+  });
+
+  scroller.addEventListener("pointermove", (e) => {
+    if (!scrubDrag) return;
+    const dx = e.clientX - scrubDrag.x;
+    if (Math.abs(dx) > 4) scrubDrag.moved = true;
+    scroller.scrollLeft = scrubDrag.sl - dx;
+  });
+
+  function endScrubDrag(e) {
+    if (!scrubDrag) return;
+    const moved = scrubDrag.moved;
+    const tick = e.target.closest?.(".time-scrub-tick");
+    scrubDrag = null;
+    scroller.classList.remove("is-dragging");
+    if (!moved && tick) setTimeOffset(Number(tick.dataset.hour));
+    else setTimeOffset(timeOffsetHours);
+  }
+
+  scroller.addEventListener("pointerup", endScrubDrag);
+  scroller.addEventListener("pointercancel", endScrubDrag);
+
+  document.getElementById("timeScrubNow").addEventListener("click", () => setTimeOffset(0));
+
+  window.addEventListener("keydown", (e) => {
+    if (!state.world.enabled) return;
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    if (!e.ctrlKey && !e.metaKey) return;
+    if (isEditableTarget(e.target)) return;
+    if (anyDialogOpen()) return;
+    e.preventDefault();
+    const step = e.shiftKey ? 24 : 1;
+    setTimeOffset(timeOffsetHours + (e.key === "ArrowRight" ? step : -step));
+  });
+}
+
 /* ---------- Persist / render ---------- */
 
 function persist() {
@@ -1287,7 +1467,9 @@ function renderAll() {
   applyTheme();
   applyBackground();
   renderStatus();
-  renderWorldClock(new Date(), true);
+  applyTimeOffsetUi();
+  syncTimeScrubScroll();
+  renderWorldClock(viewNow(), true);
   renderInspectCard();
   renderWorldSettings();
   renderAlarmList();
@@ -1312,8 +1494,11 @@ function switchPanel(name) {
 
 function init() {
   ensureDefaults();
+  buildTimeScrub();
+  bindTimeScrub();
   renderAll();
   tickWallClock();
+  syncTimeScrubScroll();
   syncChromeAlarms(state);
   mirrorToChromeStorage(state);
 
@@ -1347,7 +1532,7 @@ function init() {
     persist();
     if (state.world.showDisasters) refreshDisasters({ force: true });
     else {
-      renderWorldClock(new Date(), true);
+      renderWorldClock(viewNow(), true);
       renderWorldSettings();
     }
   });
@@ -1523,7 +1708,10 @@ function init() {
   let resizeTimer = 0;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => renderWorldClock(new Date(), true), 150);
+    resizeTimer = setTimeout(() => {
+      renderWorldClock(viewNow(), true);
+      syncTimeScrubScroll();
+    }, 150);
   });
 
   setInterval(() => {

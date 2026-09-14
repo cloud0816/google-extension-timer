@@ -189,6 +189,14 @@ body.is-map-panning {
   font-weight: 500;
 }
 
+.wall-offset {
+  margin: 0.25rem 0 0;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .status-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
@@ -920,6 +928,167 @@ html[data-theme="dark"] .world-map.is-terrestrial .wm-land {
   fill: url(#wm-terrain-dark);
 }
 
+.world-map.is-nautical .wm-ocean {
+  fill: url(#wm-nautical-ocean);
+}
+
+.world-map.is-nautical .wm-land {
+  fill: #efe4c2;
+  stroke: #2c2416;
+  stroke-width: 0.28;
+  paint-order: stroke fill;
+}
+
+.world-map.is-nautical .wm-borders {
+  stroke: #3a2c18;
+  stroke-width: 0.14;
+  opacity: 0.45;
+}
+
+.world-map.is-nautical .wm-graticule {
+  opacity: 0.95;
+}
+
+.world-map.is-nautical .wm-graticule line {
+  stroke: rgba(42, 74, 78, 0.42);
+  stroke-width: 0.16;
+}
+
+.world-map.is-nautical .wm-equator {
+  stroke: rgba(160, 40, 80, 0.55);
+  stroke-width: 0.28;
+}
+
+.world-map.is-nautical .wm-rhumbs,
+.world-map.is-nautical .wm-compass {
+  display: inline;
+}
+
+.world-map.is-nautical .wm-idl {
+  stroke: #6b7280;
+  stroke-width: 0.7;
+}
+
+.world-map.is-nautical .wm-idl-label {
+  fill: #6b7280;
+}
+
+html[data-theme="dark"] .world-map.is-nautical .wm-ocean {
+  fill: url(#wm-nautical-ocean-dark);
+}
+
+html[data-theme="dark"] .world-map.is-nautical .wm-land {
+  fill: #3d3424;
+  stroke: #cbb98a;
+}
+
+html[data-theme="dark"] .world-map.is-nautical .wm-borders {
+  stroke: #d6c49a;
+}
+
+html[data-theme="dark"] .world-map.is-nautical .wm-graticule line {
+  stroke: rgba(180, 220, 220, 0.28);
+}
+
+html[data-theme="dark"] .world-map.is-nautical .wm-idl {
+  stroke: #9ca3af;
+}
+
+html[data-theme="dark"] .world-map.is-nautical .wm-idl-label {
+  fill: #9ca3af;
+}
+
+.wm-rhumbs,
+.wm-compass {
+  display: none;
+  pointer-events: none;
+}
+
+.wm-rhumbs line {
+  stroke: rgba(80, 50, 30, 0.16);
+  stroke-width: 0.12;
+}
+
+html[data-theme="dark"] .wm-rhumbs line {
+  stroke: rgba(210, 190, 150, 0.12);
+}
+
+.wm-compass-disk {
+  fill: rgba(250, 244, 228, 0.82);
+  stroke: #5c3d22;
+  stroke-width: 0.35;
+}
+
+.wm-compass-ring,
+.wm-compass-tick {
+  fill: none;
+  stroke: #5c3d22;
+  stroke-width: 0.28;
+}
+
+.wm-compass-n {
+  fill: #b91c1c;
+}
+
+.wm-compass-s {
+  fill: #1e3a5f;
+}
+
+.wm-compass-label {
+  fill: #5c3d22;
+  font-size: 3.4px;
+  font-weight: 700;
+  font-family: var(--font);
+}
+
+html[data-theme="dark"] .wm-compass-disk {
+  fill: rgba(28, 36, 40, 0.82);
+  stroke: #e2d3b0;
+}
+
+html[data-theme="dark"] .wm-compass-ring,
+html[data-theme="dark"] .wm-compass-tick,
+html[data-theme="dark"] .wm-compass-label {
+  stroke: #e2d3b0;
+  fill: #e2d3b0;
+}
+
+html[data-theme="dark"] .wm-compass-ring,
+html[data-theme="dark"] .wm-compass-tick {
+  fill: none;
+}
+
+.wm-idl {
+  fill: none;
+  stroke: #6b7280;
+  stroke-width: 0.55;
+  stroke-dasharray: 2.4 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.wm-idl-label {
+  fill: #6b7280;
+  font-size: 3.15px;
+  font-weight: 700;
+  font-family: var(--font);
+  letter-spacing: 0.08px;
+  pointer-events: none;
+  paint-order: stroke fill;
+  stroke: var(--map-label-halo);
+  stroke-width: 0.7;
+  stroke-linejoin: round;
+}
+
+html[data-theme="dark"] .wm-idl {
+  stroke: #9ca3af;
+}
+
+html[data-theme="dark"] .wm-idl-label {
+  fill: #9ca3af;
+}
+
 .wm-ocean {
   fill: var(--map-ocean);
 }
@@ -1063,8 +1232,8 @@ html[data-theme="dark"] .world-map.is-terrestrial .wm-land {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  flex: 0 0 9.4rem;
-  width: 9.4rem;
+  flex: 1 1 0;
+  width: auto;
   min-width: 9.4rem;
 }
 
@@ -1253,11 +1422,22 @@ html[data-theme="dark"] .world-map.is-terrestrial .wm-land {
 /* World-map mode gives the middle of the screen to the map: the clock sits at
    the top, the cards along the bottom, leaving room for pins in between. */
 body.has-world-bg .stage {
-  width: min(1260px, calc(100% - 3rem));
+  width: 100%;
+  padding-inline: 1.5rem;
+  box-sizing: border-box;
   min-height: calc(100vh - 8.5rem);
   justify-content: space-between;
   gap: 0.8rem;
   pointer-events: none;
+}
+
+body.has-time-scrub .stage {
+  margin-bottom: 3.6rem;
+}
+
+body.has-world-bg.has-time-scrub .stage {
+  min-height: calc(100vh - 11.6rem);
+  margin-bottom: 3.6rem;
 }
 
 body.has-world-bg .hero,
@@ -1278,6 +1458,10 @@ body.has-world-bg .wall-clock {
 body.has-world-bg .wall-date {
   margin-top: 0.3rem;
   font-size: 0.95rem;
+}
+
+body.has-world-bg .wall-offset {
+  text-shadow: 0 2px 18px var(--bg);
 }
 
 /* Both rows ride together at the bottom of the viewport. */
@@ -1336,4 +1520,179 @@ body.has-world-bg .status-card {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Hour-offset ruler along the bottom of the window. */
+.time-scrub {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  height: 3.35rem;
+  display: flex;
+  align-items: stretch;
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.12);
+}
+
+.time-scrub-rail {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.time-scrub-scroller {
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  cursor: grab;
+  outline: none;
+  touch-action: pan-x;
+  user-select: none;
+}
+
+.time-scrub-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.time-scrub-scroller:active,
+.time-scrub-scroller.is-dragging {
+  cursor: grabbing;
+}
+
+.time-scrub-track {
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  padding-inline: 50%;
+  width: max-content;
+  box-sizing: content-box;
+}
+
+.time-scrub-tick {
+  flex: 0 0 2.4rem;
+  width: 2.4rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 0.28rem;
+  color: var(--text-muted);
+  position: relative;
+  user-select: none;
+}
+
+.time-scrub-tick::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 1.45rem;
+  width: 1px;
+  height: 0.45rem;
+  background: color-mix(in srgb, var(--text) 32%, transparent);
+  transform: translateX(-50%);
+}
+
+.time-scrub-tick.is-major::before {
+  height: 0.75rem;
+  background: color-mix(in srgb, var(--text) 55%, transparent);
+}
+
+.time-scrub-tick.is-zero::before {
+  height: 1rem;
+  width: 2px;
+  background: var(--accent);
+}
+
+.time-scrub-tick.is-day::before {
+  background: var(--accent);
+}
+
+.time-scrub-hour {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.time-scrub-tick.is-zero .time-scrub-hour {
+  color: var(--accent);
+}
+
+.time-scrub-day {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-bottom: 0.08rem;
+  color: var(--accent);
+}
+
+.time-scrub-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.time-scrub-playhead::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 100%;
+  background: var(--accent);
+  transform: translateX(-50%);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.time-scrub-readout {
+  position: absolute;
+  top: 0.22rem;
+  left: 0;
+  transform: translateX(-50%);
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg-solid);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+.time-scrub-now {
+  appearance: none;
+  position: absolute;
+  right: 0.7rem;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  border: 1px solid var(--border);
+  background: var(--bg-solid);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.time-scrub-now:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }

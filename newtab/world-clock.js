@@ -82,6 +82,43 @@ function dayShift(days) {
 }
 
 /**
+ * International Date Line, unwrapped so eastward jogs (Bering Strait, Kiribati)
+ * continue past 180° instead of jumping across the map. Drawn twice, shifted
+ * by 360°, so both copies sit on the equirectangular cylinder.
+ *
+ * Simplified from the legal IDL: 180° spine, east through the Bering Strait,
+ * west of the Aleutians, then the Kiribati / Samoa / Tonga deviations.
+ */
+const IDL_UNWRAPPED = [
+  [180, 90],
+  [180, 72],
+  [191, 68],
+  [191, 65],
+  [191.2, 62],
+  [191.5, 60],
+  [170, 53],
+  [170, 51.6],
+  [180, 51],
+  [180, 8],
+  [188, 4.5],
+  [210, 0],
+  [210, -10],
+  [192, -12],
+  [189, -15],
+  [187.5, -16.5],
+  [180, -28],
+  [180, -90],
+];
+
+function idlPathD() {
+  const toPath = (shift) =>
+    IDL_UNWRAPPED.map(
+      ([lon, lat]) => `${(lon + 180 + shift).toFixed(2)} ${projectY(lat).toFixed(2)}`
+    ).join("L");
+  return `M${toPath(0)} M${toPath(-360)}`;
+}
+
+/**
  * Everything the UI needs about one city right now: local time, how far its
  * calendar day sits from yours, its UTC offset, and whether the sun is up.
  */
@@ -238,6 +275,30 @@ export function createWorldMap() {
   oceanDeepLight.appendChild(svg("stop", { offset: "100%", "stop-color": "#6ea8c9" }));
   defs.appendChild(oceanDeepLight);
 
+  const nauticalOcean = svg("linearGradient", {
+    id: "wm-nautical-ocean",
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1",
+  });
+  nauticalOcean.appendChild(svg("stop", { offset: "0%", "stop-color": "#b7ddd6" }));
+  nauticalOcean.appendChild(svg("stop", { offset: "45%", "stop-color": "#7eb8b4" }));
+  nauticalOcean.appendChild(svg("stop", { offset: "100%", "stop-color": "#5a9aa0" }));
+  defs.appendChild(nauticalOcean);
+
+  const nauticalOceanDark = svg("linearGradient", {
+    id: "wm-nautical-ocean-dark",
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1",
+  });
+  nauticalOceanDark.appendChild(svg("stop", { offset: "0%", "stop-color": "#0e3d48" }));
+  nauticalOceanDark.appendChild(svg("stop", { offset: "50%", "stop-color": "#082830" }));
+  nauticalOceanDark.appendChild(svg("stop", { offset: "100%", "stop-color": "#0a3540" }));
+  defs.appendChild(nauticalOceanDark);
+
   root.appendChild(defs);
   root.appendChild(svg("rect", { class: "wm-ocean", x: 0, y: 0, width: 360, height: 180 }));
 
@@ -251,11 +312,75 @@ export function createWorldMap() {
   graticule.appendChild(svg("line", { class: "wm-equator", x1: 0, y1: 90, x2: 360, y2: 90 }));
   root.appendChild(graticule);
 
+  const rhumbs = svg("g", { class: "wm-rhumbs" });
+  for (let i = -180; i <= 540; i += 30) {
+    rhumbs.appendChild(svg("line", { x1: i, y1: -40, x2: i + 220, y2: 220 }));
+    rhumbs.appendChild(svg("line", { x1: i, y1: 220, x2: i + 220, y2: -40 }));
+  }
+  root.appendChild(rhumbs);
+
   root.appendChild(svg("path", { class: "wm-land", d: LAND_PATH }));
   root.appendChild(svg("path", { class: "wm-borders", d: BORDERS_PATH }));
 
   const night = svg("path", { class: "wm-night", filter: "url(#wm-night-blur)", d: "" });
   root.appendChild(night);
+
+  const idl = svg("path", {
+    class: "wm-idl",
+    d: idlPathD(),
+    fill: "none",
+  });
+  const idlTitle = svg("title");
+  idlTitle.textContent = "International Date Line";
+  idl.appendChild(idlTitle);
+  root.appendChild(idl);
+
+  const idlLabel = svg("text", {
+    class: "wm-idl-label",
+    x: 42,
+    y: 96,
+    transform: "rotate(-78 42 96)",
+  });
+  idlLabel.textContent = "International Date Line";
+  root.appendChild(idlLabel);
+
+  const idlLabelEdge = svg("text", {
+    class: "wm-idl-label",
+    x: 356.5,
+    y: 112,
+    transform: "rotate(-90 356.5 112)",
+  });
+  idlLabelEdge.textContent = "Date line";
+  root.appendChild(idlLabelEdge);
+
+  const compass = svg("g", { class: "wm-compass", transform: "translate(58 128)" });
+  compass.appendChild(svg("circle", { class: "wm-compass-disk", r: 11.4 }));
+  compass.appendChild(svg("circle", { class: "wm-compass-ring", r: 10 }));
+  compass.appendChild(svg("circle", { class: "wm-compass-ring", r: 6.8 }));
+  for (let i = 0; i < 16; i++) {
+    const a = (i * Math.PI) / 8;
+    const inner = i % 4 === 0 ? 7 : 8.2;
+    compass.appendChild(
+      svg("line", {
+        class: "wm-compass-tick",
+        x1: (Math.sin(a) * inner).toFixed(2),
+        y1: (-Math.cos(a) * inner).toFixed(2),
+        x2: (Math.sin(a) * 10).toFixed(2),
+        y2: (-Math.cos(a) * 10).toFixed(2),
+      })
+    );
+  }
+  compass.appendChild(svg("polygon", { class: "wm-compass-n", points: "0,-9.6 1.5,0.4 -1.5,0.4" }));
+  compass.appendChild(svg("polygon", { class: "wm-compass-s", points: "0,9.6 1.5,-0.4 -1.5,-0.4" }));
+  const compassN = svg("text", {
+    class: "wm-compass-label",
+    x: 0,
+    y: -12.2,
+    "text-anchor": "middle",
+  });
+  compassN.textContent = "N";
+  compass.appendChild(compassN);
+  root.appendChild(compass);
 
   const sun = svg("g", { class: "wm-sun" });
   sun.appendChild(svg("circle", { class: "wm-sun-glow", r: 26, fill: "url(#wm-sun-glow)" }));
@@ -514,6 +639,7 @@ export function createWorldMap() {
 
   function applyMapStyle(style) {
     root.classList.toggle("is-terrestrial", style === "terrestrial");
+    root.classList.toggle("is-nautical", style === "nautical");
   }
 
   function refreshOverlays() {

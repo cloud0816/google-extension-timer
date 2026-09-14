@@ -73,6 +73,7 @@
       <section class="hero">
         <time class="wall-clock" id="wallClock" datetime="">00:00</time>
         <p class="wall-date" id="wallDate"></p>
+        <p class="wall-offset" id="wallOffset" hidden></p>
       </section>
 
       <section class="world-row" id="worldRow" aria-label="World clock" hidden></section>
@@ -81,6 +82,28 @@
         <!-- filled by JS when alarm / timer / stopwatch is active -->
       </section>
     </main>
+
+    <section class="time-scrub" id="timeScrub" hidden aria-label="Time offset">
+      <div class="time-scrub-rail">
+        <div class="time-scrub-playhead" aria-hidden="true">
+          <span class="time-scrub-readout" id="timeScrubReadout">now</span>
+        </div>
+        <div
+          class="time-scrub-scroller"
+          id="timeScrubScroller"
+          tabindex="0"
+          role="slider"
+          aria-label="Hours from now"
+          aria-valuemin="-96"
+          aria-valuemax="96"
+          aria-valuenow="0"
+          aria-valuetext="now"
+        >
+          <div class="time-scrub-track" id="timeScrubTrack"></div>
+        </div>
+      </div>
+      <button type="button" class="time-scrub-now" id="timeScrubNow" hidden>Now</button>
+    </section>
 
     <!-- Settings drawer -->
     <dialog class="settings-dialog" id="settingsDialog">
@@ -235,6 +258,7 @@
                   <select id="worldMapStyle">
                     <option value="political">World map</option>
                     <option value="terrestrial">Terrestrial</option>
+                    <option value="nautical">Nautical chart</option>
                   </select>
                 </label>
               </div>
@@ -244,7 +268,10 @@
             <ul class="list" id="worldList"></ul>
             <p class="hint">
               Cities are ordered west to east by UTC offset. The map shades the half of
-              the world where the sun is down and marks the point it is overhead.
+              the world where the sun is down, marks the International Date Line, and
+              shows the point the sun is overhead. Scrub the hour ruler at the bottom,
+              or hold Ctrl and press ← / →, to shift time by an hour; add Shift to jump
+              a day.
             </p>
             <p class="hint" id="worldWeatherStatus"></p>
             <p class="hint" id="worldDisasterStatus"></p>
