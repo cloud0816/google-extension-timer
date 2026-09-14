@@ -14,10 +14,26 @@
   </head>
   <body>
     <div class="bg-layer" id="bgLayer" aria-hidden="true"></div>
+    <div class="world-bg" id="worldBg" hidden></div>
     <div class="ambient" aria-hidden="true"></div>
 
     <header class="top-bar">
-      <div class="brand">Focus Clock</div>
+      <form class="google-search" id="googleSearch" role="search" action="https://www.google.com/search" method="get">
+        <svg class="google-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m16 16 4.5 4.5" />
+        </svg>
+        <input
+          type="search"
+          id="googleSearchInput"
+          name="q"
+          placeholder="Search Google"
+          autocomplete="off"
+          spellcheck="false"
+          enterkeyhint="search"
+          aria-label="Search Google"
+        />
+      </form>
       <div class="top-actions">
         <button type="button" class="icon-btn" id="themeBtn" title="Theme" aria-label="Change theme">
           <svg class="icon theme-icon" data-for="system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
@@ -30,6 +46,12 @@
           </svg>
           <svg class="icon theme-icon" data-for="dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
             <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5z" />
+          </svg>
+        </button>
+        <button type="button" class="icon-btn" id="pinBtn" title="Drop a pin" aria-label="Drop a pin on the map" aria-pressed="false">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+            <path d="M12 21s7-6.2 7-11.2A7 7 0 0 0 5 9.8C5 14.8 12 21 12 21z" />
+            <circle cx="12" cy="9.8" r="2.2" />
           </svg>
         </button>
         <button type="button" class="icon-btn" id="bgBtn" title="Background" aria-label="Change background">
@@ -48,16 +70,50 @@
       </div>
     </header>
 
+    <p class="pin-hint" id="pinHint" hidden>Click a point on the map</p>
+    <div class="map-hover" id="mapHover" hidden>
+      <strong id="mapHoverCity"></strong>
+      <span id="mapHoverCountry"></span>
+      <span class="map-hover-meta" id="mapHoverMeta"></span>
+      <span class="map-hover-weather" id="mapHoverWeather" hidden></span>
+    </div>
+    <aside class="inspect-stack" id="inspectStack" hidden aria-label="Dropped pins"></aside>
+
     <main class="stage">
       <section class="hero">
         <time class="wall-clock" id="wallClock" datetime="">00:00</time>
         <p class="wall-date" id="wallDate"></p>
+        <p class="wall-offset" id="wallOffset" hidden></p>
       </section>
 
-      <section class="status-row" id="statusRow" aria-label="Current status">
-        <!-- filled by JS -->
+      <section class="world-row" id="worldRow" aria-label="World clock" hidden></section>
+
+      <section class="status-row" id="statusRow" aria-label="Current status" hidden>
+        <!-- filled by JS when alarm / timer / stopwatch is active -->
       </section>
     </main>
+
+    <section class="time-scrub" id="timeScrub" hidden aria-label="Time offset">
+      <div class="time-scrub-rail">
+        <div class="time-scrub-playhead" aria-hidden="true">
+          <span class="time-scrub-readout" id="timeScrubReadout">now</span>
+        </div>
+        <div
+          class="time-scrub-scroller"
+          id="timeScrubScroller"
+          tabindex="0"
+          role="slider"
+          aria-label="Hours from now"
+          aria-valuemin="-96"
+          aria-valuemax="96"
+          aria-valuenow="0"
+          aria-valuetext="now"
+        >
+          <div class="time-scrub-track" id="timeScrubTrack"></div>
+        </div>
+      </div>
+      <button type="button" class="time-scrub-now" id="timeScrubNow" hidden>Now</button>
+    </section>
 
     <!-- Settings drawer -->
     <dialog class="settings-dialog" id="settingsDialog">
@@ -75,6 +131,7 @@
           <button type="button" class="tab active" role="tab" data-panel="alarm" aria-selected="true">Alarm</button>
           <button type="button" class="tab" role="tab" data-panel="timer" aria-selected="false">Timer</button>
           <button type="button" class="tab" role="tab" data-panel="stopwatch" aria-selected="false">Stopwatch</button>
+          <button type="button" class="tab" role="tab" data-panel="world" aria-selected="false">World clock</button>
         </nav>
 
         <div class="panels">
@@ -163,6 +220,72 @@
             </form>
             <ul class="list" id="stopwatchList"></ul>
           </div>
+
+          <!-- WORLD CLOCK -->
+          <div class="panel" id="panel-world" role="tabpanel" hidden>
+            <div class="toggle-row">
+              <label class="switch">
+                <input type="checkbox" id="worldEnabled" />
+                <span>Show world clock on the new tab</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" id="worldShowPins" />
+                <span>Pin cities on the map</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" id="worldShowWeather" />
+                <span>Show weather</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" id="worldShowDisasters" />
+                <span>Show major natural disasters on the map</span>
+              </label>
+            </div>
+
+            <form class="form" id="worldForm">
+              <div class="field-row">
+                <label class="field grow">
+                  <span>Add a city</span>
+                  <select id="worldCitySelect"></select>
+                </label>
+                <label class="field">
+                  <span>Clock format</span>
+                  <select id="worldFormat">
+                    <option value="auto">Match system</option>
+                    <option value="12">12-hour</option>
+                    <option value="24">24-hour</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Temperature</span>
+                  <select id="worldTempUnit">
+                    <option value="celsius">Celsius (&deg;C)</option>
+                    <option value="fahrenheit">Fahrenheit (&deg;F)</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Map style</span>
+                  <select id="worldMapStyle">
+                    <option value="political">World map</option>
+                    <option value="terrestrial">Terrestrial</option>
+                    <option value="nautical">Nautical chart</option>
+                  </select>
+                </label>
+              </div>
+              <button type="submit" class="btn primary">Add city</button>
+            </form>
+
+            <ul class="list" id="worldList"></ul>
+            <p class="hint">
+              Cities you add here always stay labeled on the map, with local time and
+              weather. Zoom in to reveal more places; zoom out to hide the extras.
+              Text stays the same size. Scrub the hour ruler at the bottom, or hold
+              Ctrl and press ← / →, to shift time by an hour; add Shift to jump a day.
+            </p>
+            <p class="hint" id="worldWeatherStatus"></p>
+            <p class="hint" id="worldDisasterStatus"></p>
+            <ul class="list disaster-list" id="worldDisasterList" hidden></ul>
+          </div>
         </div>
       </div>
     </dialog>
@@ -179,22 +302,53 @@
           </button>
         </header>
         <div class="modal-body">
-          <label class="field">
-            <span>Solid color</span>
-            <div class="color-row">
-              <input type="color" id="bgColor" value="#1a1d21" />
-              <button type="button" class="btn ghost sm" id="applyColorBtn">Apply color</button>
-            </div>
-          </label>
           <div class="field">
-            <span>Image</span>
-            <div class="file-picker">
-              <input type="file" id="bgImage" accept="image/*" hidden />
-              <button type="button" class="btn ghost" id="pickImageBtn">Choose image</button>
-              <span class="file-name" id="bgImageName">No file chosen</span>
+            <span>Style</span>
+            <div class="bg-styles" id="bgStyles" role="group" aria-label="Background style">
+              <button type="button" class="bg-style" data-style="default">
+                <span class="bg-swatch swatch-default"></span>Default
+              </button>
+              <button type="button" class="bg-style" data-style="color">
+                <span class="bg-swatch swatch-color"></span>Solid color
+              </button>
+              <button type="button" class="bg-style" data-style="image">
+                <span class="bg-swatch swatch-image"></span>Image
+              </button>
+              <button type="button" class="bg-style" data-style="world">
+                <span class="bg-swatch swatch-world"></span>World clock
+              </button>
             </div>
           </div>
-          <p class="hint">Images are stored locally in this extension. Uninstalling removes all saved data.</p>
+
+          <div class="bg-option" data-style="color" hidden>
+            <label class="field">
+              <span>Solid color</span>
+              <div class="color-row">
+                <input type="color" id="bgColor" value="#1a1d21" />
+                <button type="button" class="btn ghost sm" id="applyColorBtn">Apply color</button>
+              </div>
+            </label>
+          </div>
+
+          <div class="bg-option" data-style="image" hidden>
+            <div class="field">
+              <span>Image</span>
+              <div class="file-picker">
+                <input type="file" id="bgImage" accept="image/*" hidden />
+                <button type="button" class="btn ghost" id="pickImageBtn">Choose image</button>
+                <span class="file-name" id="bgImageName">No file chosen</span>
+              </div>
+            </div>
+            <p class="hint">Images are stored locally in this extension. Uninstalling removes all saved data.</p>
+          </div>
+
+          <div class="bg-option" data-style="world" hidden>
+            <p class="hint">
+              A live world map: the shaded half is where the sun is down, the glow marks
+              the point it is directly overhead, and your cities are pinned with their
+              local time. Pick cities under <strong>Settings &rsaquo; World clock</strong>.
+            </p>
+          </div>
         </div>
         <footer class="modal-foot">
           <button type="button" class="btn ghost" id="resetBgBtn">Reset default</button>

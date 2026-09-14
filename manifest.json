@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Focus Clock — Alarm, Timer & Stopwatch",
-  "version": "1.0.0",
-  "description": "Set alarms, timers, and a stopwatch on your new tab. Customize theme and background.",
+  "name": "World Clock, Alarm, Timer & Stopwatch",
+  "version": "1.2.0",
+  "description": "A live world map with day, night and weather, plus alarms, timers, and a stopwatch on every new tab.",
   "permissions": ["alarms", "notifications", "storage"],
   "chrome_url_overrides": {
     "newtab": "newtab/index.html"
@@ -16,13 +16,13 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Focus Clock",
+    "default_title": "World Clock, Alarm, Timer & Stopwatch",
     "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png"
+      "16": "icons/light/icon16.png",
+      "48": "icons/light/icon48.png"
     }
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:;"
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.open-meteo.com https://api.bigdatacloud.net https://eonet.gsfc.nasa.gov https://earthquake.usgs.gov;"
   }
 }

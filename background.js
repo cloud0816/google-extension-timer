@@ -1,18 +1,28 @@
 const STORAGE_KEY = "focusClockData";
+const ICON_THEME_KEY = "focusClockIconTheme";
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(null, (items) => {
-    const keys = Object.keys(items || {}).filter((k) => k.startsWith("focusClock"));
+    const keys = Object.keys(items || {}).filter(
+      (k) => k.startsWith("focusClock") && k !== STORAGE_KEY && k !== ICON_THEME_KEY
+    );
     if (keys.length) chrome.storage.local.remove(keys);
   });
+  restoreActionIcon();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  restoreActionIcon();
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  let title = "Focus Clock";
+  let title = "Alarm";
   let message = "Time is up.";
+  let iconTheme = "light";
 
   try {
-    const result = await chrome.storage.local.get(STORAGE_KEY);
+    const result = await chrome.storage.local.get([STORAGE_KEY, ICON_THEME_KEY]);
+    iconTheme = result[ICON_THEME_KEY] === "dark" ? "dark" : "light";
     const data = result[STORAGE_KEY] || {};
     let changed = false;
 
@@ -44,7 +54,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
     chrome.notifications.create(`notify-${alarm.name}-${Date.now()}`, {
       type: "basic",
-      iconUrl: "icons/icon128.png",
+      iconUrl: `icons/${iconTheme}/icon128.png`,
       title,
       message,
       priority: 2,
@@ -57,7 +67,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   } catch (_) {
     chrome.notifications.create(`notify-${alarm.name}-${Date.now()}`, {
       type: "basic",
-      iconUrl: "icons/icon128.png",
+      iconUrl: `icons/${iconTheme}/icon128.png`,
       title,
       message,
       priority: 2,
@@ -76,12 +86,54 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "MIRROR_STORAGE") {
     chrome.storage.local
       .set({ [STORAGE_KEY]: msg.payload })
+      .then(async () => {
+        const resolved = resolveStoredTheme(msg.payload?.theme);
+        if (resolved) await applyActionIcon(resolved);
+        sendResponse({ ok: true });
+      })
+      .catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
+  if (msg?.type === "SET_ICON_THEME") {
+    applyActionIcon(msg.theme === "dark" ? "dark" : "light")
       .then(() => sendResponse({ ok: true }))
       .catch((e) => sendResponse({ ok: false, error: String(e) }));
     return true;
   }
   return false;
 });
+
+function iconPaths(theme) {
+  const folder = theme === "dark" ? "dark" : "light";
+  return {
+    16: `icons/${folder}/icon16.png`,
+    48: `icons/${folder}/icon48.png`,
+  };
+}
+
+async function applyActionIcon(theme) {
+  const mode = theme === "dark" ? "dark" : "light";
+  await chrome.action.setIcon({ path: iconPaths(mode) });
+  await chrome.storage.local.set({ [ICON_THEME_KEY]: mode });
+}
+
+function resolveStoredTheme(pref) {
+  if (pref === "light" || pref === "dark") return pref;
+  // Service worker cannot read prefers-color-scheme; keep last known icon theme.
+  return null;
+}
+
+async function restoreActionIcon() {
+  const result = await chrome.storage.local.get([STORAGE_KEY, ICON_THEME_KEY]);
+  const storedIcon = result[ICON_THEME_KEY];
+  if (storedIcon === "dark" || storedIcon === "light") {
+    await applyActionIcon(storedIcon);
+    return;
+  }
+  const pref = result[STORAGE_KEY]?.theme;
+  const resolved = resolveStoredTheme(pref);
+  await applyActionIcon(resolved || "light");
+}
 
 async function syncChromeAlarms(payload) {
   const existing = await chrome.alarms.getAll();
