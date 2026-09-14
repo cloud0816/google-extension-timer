@@ -785,8 +785,9 @@ body.has-world-bg .ambient {
 }
 
 body.has-world-bg .wall-clock,
-body.has-world-bg .wall-date {
-  text-shadow: 0 2px 18px var(--bg);
+body.has-world-bg .wall-date,
+body.has-world-bg .wall-offset {
+  text-shadow: none;
 }
 
 .world-map {
@@ -1419,8 +1420,8 @@ html[data-theme="dark"] .wm-idl-label {
   background: linear-gradient(90deg, #38bdf8 0%, #1d4ed8 48%, #0b1220 100%);
 }
 
-/* World-map mode gives the middle of the screen to the map: the clock sits at
-   the top, the cards along the bottom, leaving room for pins in between. */
+/* World-map mode gives the middle of the screen to the map: the clock sits
+   centered and translucent over it, the cards along the bottom. */
 body.has-world-bg .stage {
   width: 100%;
   padding-inline: 1.5rem;
@@ -1440,28 +1441,37 @@ body.has-world-bg.has-time-scrub .stage {
   margin-bottom: 3.6rem;
 }
 
-body.has-world-bg .hero,
 body.has-world-bg .world-row,
 body.has-world-bg .status-row {
   pointer-events: auto;
 }
 
 body.has-world-bg .hero {
-  text-align: left;
-  padding: 0.25rem 0 0;
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  padding: 0;
+  margin: 0;
+  z-index: 3;
+  pointer-events: none;
 }
 
 body.has-world-bg .wall-clock {
-  font-size: clamp(2.4rem, 5.5vw, 3.6rem);
+  font-size: clamp(3.4rem, 11vw, 7rem);
+  color: color-mix(in srgb, var(--text) 34%, transparent);
+  font-weight: 500;
 }
 
 body.has-world-bg .wall-date {
-  margin-top: 0.3rem;
+  margin-top: 0.35rem;
   font-size: 0.95rem;
+  color: color-mix(in srgb, var(--text-muted) 48%, transparent);
 }
 
 body.has-world-bg .wall-offset {
-  text-shadow: 0 2px 18px var(--bg);
+  color: color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
 /* Both rows ride together at the bottom of the viewport. */
