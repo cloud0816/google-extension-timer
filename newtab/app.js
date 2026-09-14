@@ -3,7 +3,7 @@
  * Data in localStorage; Chrome clears extension origin on uninstall.
  */
 
-import { CITIES, CITY_BY_ID, DEFAULT_CITY_IDS } from "./cities.js";
+import { ALL_CITIES, CITY_BY_ID, CITY_REGIONS, DEFAULT_CITY_IDS } from "./cities.js";
 import { subsolarPoint } from "./solar.js";
 import { createWorldMap, cityReadout } from "./world-clock.js";
 import {
@@ -38,6 +38,9 @@ const TEMP_UNITS = ["celsius", "fahrenheit"];
 const MAP_STYLES = ["political", "terrestrial", "nautical"];
 const TIME_OFFSET_MIN = -96;
 const TIME_OFFSET_MAX = 96;
+const MAX_DROPPED_PINS = 3;
+const PIN_HINT_PLACE = "Click a point on the map";
+const PIN_HINT_FULL = "Maximum 3 pins — remove one first";
 
 let timeOffsetHours = 0;
 let scrubSyncing = false;
@@ -66,7 +69,7 @@ const defaultWorld = () => ({
   showWeather: true,
   showDisasters: false,
   mapStyle: "political",
-  droppedPin: null,
+  droppedPins: [],
   tempUnit: defaultTempUnit(),
 });
 
@@ -91,6 +94,7 @@ function normalizeDroppedPin(pin) {
   const lon = Number(pin.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
   return {
+    id: typeof pin.id === "string" && pin.id ? pin.id : uid(),
     lat,
     lon,
     name: typeof pin.name === "string" && pin.name.trim() ? pin.name.trim() : formatCoords(lat, lon),
@@ -98,6 +102,24 @@ function normalizeDroppedPin(pin) {
     country: typeof pin.country === "string" ? pin.country : "",
     tz: typeof pin.tz === "string" && pin.tz ? pin.tz : "UTC",
   };
+}
+
+function normalizeDroppedPins(world) {
+  const raw = Array.isArray(world?.droppedPins)
+    ? world.droppedPins
+    : world?.droppedPin
+      ? [world.droppedPin]
+      : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of raw) {
+    const pin = normalizeDroppedPin(item);
+    if (!pin || seen.has(pin.id)) continue;
+    seen.add(pin.id);
+    out.push(pin);
+    if (out.length >= MAX_DROPPED_PINS) break;
+  }
+  return out;
 }
 
 /** Drops cities that are no longer in the catalogue and keeps an empty list empty. */
@@ -115,7 +137,7 @@ function normalizeWorld(world) {
     showWeather: world.showWeather !== false,
     showDisasters: world.showDisasters === true,
     mapStyle: MAP_STYLES.includes(world.mapStyle) ? world.mapStyle : "political",
-    droppedPin: normalizeDroppedPin(world.droppedPin),
+    droppedPins: normalizeDroppedPins(world),
     tempUnit: TEMP_UNITS.includes(world.tempUnit) ? world.tempUnit : base.tempUnit,
   };
 }
@@ -365,6 +387,18 @@ function selectedCities() {
   return state.world.cities.map((id) => CITY_BY_ID.get(id)).filter(Boolean);
 }
 
+let mapLabelCities = [];
+let mapLabelWeatherTimer = 0;
+
+function weatherTargetCities() {
+  const byId = new Map();
+  for (const city of selectedCities()) byId.set(city.id, city);
+  for (const city of mapLabelCities) {
+    if (city?.id) byId.set(city.id, city);
+  }
+  return [...byId.values()];
+}
+
 /**
  * Fetches only when something is actually stale or missing, so this is safe to
  * call from `persist()`. A failure backs off rather than retrying every change.
@@ -373,7 +407,7 @@ async function refreshWeather({ force = false } = {}) {
   const world = state.world;
   if (!world.showWeather) return;
 
-  const cities = selectedCities();
+  const cities = weatherTargetCities();
   if (!cities.length || weatherPending) return;
 
   const stale = Date.now() - weatherCache.fetchedAt > WEATHER_MAX_AGE_MS;
@@ -385,11 +419,11 @@ async function refreshWeather({ force = false } = {}) {
   try {
     const readings = await fetchWeather(cities);
     if (readings.size) {
-      // Rebuild around the current selection so the cache cannot grow forever.
+      const keep = new Set(cities.map((c) => c.id));
       const byCity = {};
-      for (const city of cities) {
-        const hit = readings.get(city.id) || weatherCache.byCity[city.id];
-        if (hit) byCity[city.id] = hit;
+      for (const id of keep) {
+        const hit = readings.get(id) || weatherCache.byCity[id];
+        if (hit) byCity[id] = hit;
       }
       weatherCache = { fetchedAt: Date.now(), byCity };
       weatherFailed = false;
@@ -420,11 +454,13 @@ function weatherFor(cityId) {
 function weatherForMap() {
   const out = {};
   if (!state.world.showWeather) return out;
-  for (const city of selectedCities()) {
+  for (const city of weatherTargetCities()) {
     const reading = weatherCache.byCity[city.id];
     if (!reading) continue;
     const short = formatTemp(reading.tempC, state.world.tempUnit);
-    if (short) out[city.id] = { short, label: describeCode(reading.code).label };
+    if (!short) continue;
+    const desc = describeCode(reading.code);
+    out[city.id] = { short, label: desc.label, icon: desc.icon };
   }
   return out;
 }
@@ -582,13 +618,111 @@ function ensureWorldMap() {
   if (!worldMap) {
     worldMap = createWorldMap();
     document.getElementById("worldBg").appendChild(worldMap.el);
+    worldMap.setHoverHandler(updateMapHover);
+    worldMap.setVisibleCitiesHandler(onMapVisibleCities);
+    worldMap.setDroppedPinClickHandler(onDroppedPinClick);
   }
   return worldMap;
 }
 
+function onMapVisibleCities(cities) {
+  const next = cities || [];
+  const same =
+    next.length === mapLabelCities.length &&
+    next.every((c, i) => c.id === mapLabelCities[i]?.id);
+  mapLabelCities = next;
+  if (same) return;
+  clearTimeout(mapLabelWeatherTimer);
+  mapLabelWeatherTimer = setTimeout(() => refreshWeather(), 280);
+}
+
+function updateMapHover(hit) {
+  const el = document.getElementById("mapHover");
+  const cityEl = document.getElementById("mapHoverCity");
+  const countryEl = document.getElementById("mapHoverCountry");
+  const metaEl = document.getElementById("mapHoverMeta");
+  const weatherEl = document.getElementById("mapHoverWeather");
+  if (!hit?.city) {
+    el.hidden = true;
+    return;
+  }
+  cityEl.textContent = [hit.city.name, hit.city.country].filter(Boolean).join(", ");
+  countryEl.hidden = true;
+  let readout = null;
+  try {
+    readout = cityReadout(hit.city, viewNow(), state.world.clockFormat);
+  } catch {
+    readout = null;
+  }
+  metaEl.textContent = readout?.time || "";
+  metaEl.hidden = !metaEl.textContent;
+  const reading = weatherFor(hit.city.id);
+  if (reading) {
+    const { label, icon } = describeCode(reading.code);
+    const temp = formatTemp(reading.tempC, state.world.tempUnit);
+    weatherEl.innerHTML = `${iconMarkup(icon, readout?.phase !== "day")}<span>${[temp, label].filter(Boolean).join(" ")}</span>`;
+    weatherEl.hidden = false;
+  } else {
+    weatherEl.replaceChildren();
+    weatherEl.hidden = true;
+  }
+  el.hidden = false;
+  const pad = 14;
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  let left = hit.clientX + pad;
+  let top = hit.clientY + pad;
+  if (left + w > window.innerWidth - 8) left = hit.clientX - w - 10;
+  if (top + h > window.innerHeight - 8) top = hit.clientY - h - 10;
+  el.style.left = `${Math.max(8, left)}px`;
+  el.style.top = `${Math.max(8, top)}px`;
+}
+
 let pickMode = false;
-let droppedWeather = null;
-let droppedWeatherAt = 0;
+let droppedWeatherById = {};
+let selectedDroppedPinId = null;
+let pinHintTimer = 0;
+
+function droppedPins() {
+  return state.world.droppedPins || [];
+}
+
+function selectedDroppedPin() {
+  const pins = droppedPins();
+  if (!pins.length) return null;
+  return pins.find((p) => p.id === selectedDroppedPinId) || pins[pins.length - 1];
+}
+
+function pruneDroppedWeather() {
+  const keep = new Set(droppedPins().map((p) => p.id));
+  for (const id of Object.keys(droppedWeatherById)) {
+    if (!keep.has(id)) delete droppedWeatherById[id];
+  }
+}
+
+function flashPinHint(text) {
+  const hint = document.getElementById("pinHint");
+  hint.textContent = text;
+  hint.hidden = false;
+  clearTimeout(pinHintTimer);
+  pinHintTimer = setTimeout(() => {
+    if (pickMode) {
+      hint.textContent = PIN_HINT_PLACE;
+      return;
+    }
+    hint.hidden = true;
+    hint.textContent = PIN_HINT_PLACE;
+  }, 2200);
+}
+
+function updatePinButton() {
+  const btn = document.getElementById("pinBtn");
+  const n = droppedPins().length;
+  const full = n >= MAX_DROPPED_PINS;
+  btn.title = full ? PIN_HINT_FULL : "Drop a pin";
+  btn.setAttribute("aria-label", full ? PIN_HINT_FULL : "Drop a pin on the map");
+  btn.classList.toggle("is-full", full);
+}
 
 function setPickMode(on) {
   pickMode = Boolean(on);
@@ -596,6 +730,7 @@ function setPickMode(on) {
   const hint = document.getElementById("pinHint");
   btn.classList.toggle("is-active", pickMode);
   btn.setAttribute("aria-pressed", pickMode ? "true" : "false");
+  hint.textContent = PIN_HINT_PLACE;
   hint.hidden = !pickMode;
   document.body.classList.toggle("is-pin-picking", pickMode);
   if (pickMode && state.background.type !== "world") {
@@ -603,109 +738,208 @@ function setPickMode(on) {
     persist();
   }
   ensureWorldMap().setPickMode(pickMode, pickMode ? onMapPick : null);
+  updatePinButton();
 }
 
-function droppedPinView(now = viewNow()) {
-  const pin = state.world.droppedPin;
+function droppedPinView(pin, now = viewNow()) {
   if (!pin) return null;
-  const city = { id: "drop", name: pin.name, lat: pin.lat, lon: pin.lon, tz: pin.tz || "UTC", country: "" };
+  const city = {
+    id: pin.id || "drop",
+    name: pin.name,
+    lat: pin.lat,
+    lon: pin.lon,
+    tz: pin.tz || "UTC",
+    country: pin.country || "",
+  };
   let readout;
   try {
     readout = cityReadout(city, now, state.world.clockFormat);
   } catch {
     readout = cityReadout({ ...city, tz: "UTC" }, now, state.world.clockFormat);
   }
-  const temp = droppedWeather && formatTemp(droppedWeather.tempC, state.world.tempUnit);
+  const cached = droppedWeatherById[pin.id];
+  const temp = cached && formatTemp(cached.tempC, state.world.tempUnit);
+  const weather = cached
+    ? {
+        short: temp,
+        ...describeCode(cached.code),
+      }
+    : null;
   return {
     ...pin,
     readout,
-    timeText: temp ? `${readout.time} · ${temp}` : readout.time,
+    timeText: weather?.short ? `${readout.time} · ${weather.short}` : readout.time,
+    weather,
+    selected: pin.id === selectedDroppedPin()?.id,
   };
 }
 
-function renderInspectCard(now = viewNow()) {
-  const card = document.getElementById("inspectCard");
-  const pin = state.world.droppedPin;
-  if (!pin) {
-    card.hidden = true;
-    if (worldMap) worldMap.setDroppedPin(null);
-    return;
-  }
-  const view = droppedPinView(now);
-  document.getElementById("inspectName").textContent =
-    pin.city && pin.country ? `${pin.city}, ${pin.country}` : pin.name;
-  document.getElementById("inspectTime").textContent = view.readout.time;
-  const weatherEl = document.getElementById("inspectWeather");
-  if (droppedWeather) {
-    const { label, icon } = describeCode(droppedWeather.code);
-    const temp = formatTemp(droppedWeather.tempC, state.world.tempUnit, true);
+function inspectPinLabel(pin) {
+  return pin.city && pin.country ? `${pin.city}, ${pin.country}` : pin.name;
+}
+
+function inspectCardEl(pin, now, selected) {
+  const view = droppedPinView(pin, now);
+  const card = document.createElement("article");
+  card.className = selected ? "inspect-card is-selected" : "inspect-card";
+  card.dataset.pinId = pin.id;
+
+  const head = document.createElement("header");
+  head.className = "inspect-head";
+  const name = document.createElement("strong");
+  name.textContent = inspectPinLabel(pin);
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "icon-btn inspect-close";
+  close.setAttribute("aria-label", "Remove pin");
+  close.innerHTML =
+    '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M6 6l12 12M18 6 6 18" /></svg>';
+  head.append(name, close);
+
+  const time = document.createElement("div");
+  time.className = "inspect-time mono";
+  time.textContent = view.readout.time;
+
+  const weatherEl = document.createElement("div");
+  weatherEl.className = "inspect-weather";
+  paintInspectWeather(weatherEl, pin, view);
+
+  const meta = document.createElement("div");
+  meta.className = "inspect-meta";
+  meta.textContent = `${view.readout.dayLabel} · ${view.readout.offsetLabel} · ${formatCoords(pin.lat, pin.lon)}`;
+
+  card.append(head, time, weatherEl, meta);
+  return card;
+}
+
+function paintInspectWeather(weatherEl, pin, view) {
+  const cached = droppedWeatherById[pin.id];
+  if (cached) {
+    const { label, icon } = describeCode(cached.code);
+    const temp = formatTemp(cached.tempC, state.world.tempUnit, true);
     weatherEl.innerHTML = `${iconMarkup(icon, view.readout.phase !== "day")}<span>${temp} ${label}</span>`;
   } else {
     weatherEl.textContent = "Fetching weather…";
   }
-  document.getElementById("inspectMeta").textContent =
-    `${view.readout.dayLabel} · ${view.readout.offsetLabel} · ${formatCoords(pin.lat, pin.lon)}`;
-  card.hidden = false;
-  if (worldMap) worldMap.setDroppedPin(view);
+}
+
+let lastInspectKey = "";
+
+function renderInspectCard(now = viewNow()) {
+  const stack = document.getElementById("inspectStack");
+  pruneDroppedWeather();
+  const pins = droppedPins();
+  updatePinButton();
+  if (worldMap) worldMap.setDroppedPins(pins.map((p) => droppedPinView(p, now)));
+  if (!pins.length) {
+    lastInspectKey = "";
+    stack.hidden = true;
+    stack.replaceChildren();
+    return;
+  }
+  const selectedId = selectedDroppedPin()?.id || "";
+  selectedDroppedPinId = selectedId || null;
+  const weatherKey = pins
+    .map((p) => `${p.id}:${droppedWeatherById[p.id]?.at || 0}:${p.name}`)
+    .join("|");
+  const key =
+    `${pins.map((p) => p.id).join(",")}|${selectedId}|${weatherKey}|` +
+    `${Math.floor(now.getTime() / 60000)}|${state.world.tempUnit}|${state.world.clockFormat}`;
+  if (key === lastInspectKey) return;
+  lastInspectKey = key;
+  stack.hidden = false;
+  stack.replaceChildren(...pins.map((pin) => inspectCardEl(pin, now, pin.id === selectedId)));
 }
 
 async function refreshDroppedWeather({ force = false } = {}) {
-  const pin = state.world.droppedPin;
-  if (!pin) {
-    droppedWeather = null;
+  const pins = droppedPins();
+  if (!pins.length) {
+    droppedWeatherById = {};
     return;
   }
-  if (!force && droppedWeather && Date.now() - droppedWeatherAt < WEATHER_MAX_AGE_MS) return;
-  try {
-    const reading = await fetchPointWeather(pin.lat, pin.lon);
-    droppedWeather = { tempC: reading.tempC, code: reading.code };
-    droppedWeatherAt = Date.now();
-    if (reading.timezone && reading.timezone !== pin.tz) {
-      state.world.droppedPin = { ...pin, tz: reading.timezone };
-      saveState(state);
-    }
-    renderInspectCard();
-  } catch {
-    if (!droppedWeather) {
-      document.getElementById("inspectWeather").textContent = "Weather unavailable";
-    }
-  }
+  await Promise.all(
+    pins.map(async (pin) => {
+      const cached = droppedWeatherById[pin.id];
+      if (!force && cached && Date.now() - cached.at < WEATHER_MAX_AGE_MS) return;
+      try {
+        const reading = await fetchPointWeather(pin.lat, pin.lon);
+        droppedWeatherById[pin.id] = {
+          tempC: reading.tempC,
+          code: reading.code,
+          at: Date.now(),
+        };
+        if (reading.timezone && reading.timezone !== pin.tz) {
+          state.world.droppedPins = droppedPins().map((p) =>
+            p.id === pin.id ? { ...p, tz: reading.timezone } : p
+          );
+          saveState(state);
+        }
+      } catch {
+        /* keep whatever we already have for this pin */
+      }
+    })
+  );
+  renderInspectCard();
 }
 
 async function onMapPick({ lat, lon }) {
   setPickMode(false);
+  if (droppedPins().length >= MAX_DROPPED_PINS) {
+    flashPinHint(PIN_HINT_FULL);
+    return;
+  }
+  const id = uid();
   const coords = formatCoords(lat, lon);
-  state.world.droppedPin = { lat, lon, name: coords, tz: "UTC" };
-  droppedWeather = null;
-  droppedWeatherAt = 0;
+  const pin = { id, lat, lon, name: coords, city: "", country: "", tz: "UTC" };
+  state.world.droppedPins = [...droppedPins(), pin];
+  selectedDroppedPinId = id;
   persist();
   renderInspectCard();
   const [weatherHit, placeHit] = await Promise.allSettled([
     fetchPointWeather(lat, lon),
     reverseGeocode(lat, lon),
   ]);
+  if (!droppedPins().some((p) => p.id === id)) return;
   const reading = weatherHit.status === "fulfilled" ? weatherHit.value : null;
   const place = placeHit.status === "fulfilled" ? placeHit.value : null;
   if (reading) {
-    droppedWeather = { tempC: reading.tempC, code: reading.code };
-    droppedWeatherAt = Date.now();
+    droppedWeatherById[id] = {
+      tempC: reading.tempC,
+      code: reading.code,
+      at: Date.now(),
+    };
   }
-  state.world.droppedPin = {
-    lat,
-    lon,
-    name: place?.name || coords,
-    city: place?.city || "",
-    country: place?.country || "",
-    tz: reading?.timezone || "UTC",
-  };
+  state.world.droppedPins = droppedPins().map((p) =>
+    p.id === id
+      ? {
+          ...p,
+          name: place?.name || coords,
+          city: place?.city || "",
+          country: place?.country || "",
+          tz: reading?.timezone || p.tz || "UTC",
+        }
+      : p
+  );
   saveState(state);
   renderInspectCard();
 }
 
-function clearDroppedPin() {
-  state.world.droppedPin = null;
-  droppedWeather = null;
-  droppedWeatherAt = 0;
+function onDroppedPinClick(id) {
+  if (pickMode) return;
+  if (!droppedPins().some((p) => p.id === id)) return;
+  selectedDroppedPinId = id;
+  renderInspectCard();
+}
+
+function clearDroppedPin(id) {
+  const pinId = id || selectedDroppedPin()?.id;
+  if (!pinId) {
+    state.world.droppedPins = [];
+  } else {
+    state.world.droppedPins = droppedPins().filter((p) => p.id !== pinId);
+    delete droppedWeatherById[pinId];
+  }
+  selectedDroppedPinId = droppedPins().at(-1)?.id || null;
   persist();
   renderInspectCard();
 }
@@ -839,16 +1073,22 @@ function renderWorldSettings() {
 
   const select = document.getElementById("worldCitySelect");
   const chosen = new Set(world.cities);
-  const available = CITIES.filter((c) => !chosen.has(c.id));
+  const available = ALL_CITIES.filter((c) => !chosen.has(c.id));
   const keep = select.value;
-  select.replaceChildren(
-    ...available.map((c) => {
+  const groups = CITY_REGIONS.map((region) => {
+    const cities = available.filter((c) => c.region === region);
+    if (!cities.length) return null;
+    const group = document.createElement("optgroup");
+    group.label = region;
+    for (const c of cities) {
       const opt = document.createElement("option");
       opt.value = c.id;
       opt.textContent = `${c.name} — ${c.country}`;
-      return opt;
-    })
-  );
+      group.appendChild(opt);
+    }
+    return group;
+  }).filter(Boolean);
+  select.replaceChildren(...groups);
   if (available.some((c) => c.id === keep)) select.value = keep;
   select.disabled = available.length === 0;
 
@@ -1321,6 +1561,26 @@ function scrubTickWidth() {
   return tick ? tick.getBoundingClientRect().width : 38.4;
 }
 
+function hoursFromScrubScroll(scrollLeft) {
+  const w = scrubTickWidth();
+  if (!w) return timeOffsetHours;
+  return TIME_OFFSET_MIN + Math.round(scrollLeft / w);
+}
+
+function scrollLeftToCenterHour(hours) {
+  const scroller = document.getElementById("timeScrubScroller");
+  const tick = document.querySelector(
+    `#timeScrubTrack .time-scrub-tick[data-hour="${hours}"]`
+  );
+  if (!scroller || !tick) return (hours - TIME_OFFSET_MIN) * scrubTickWidth();
+  const sRect = scroller.getBoundingClientRect();
+  const tRect = tick.getBoundingClientRect();
+  if (!sRect.width || !tRect.width) {
+    return (hours - TIME_OFFSET_MIN) * scrubTickWidth();
+  }
+  return scroller.scrollLeft + (tRect.left + tRect.width / 2) - (sRect.left + sRect.width / 2);
+}
+
 function applyTimeOffsetUi() {
   const scrub = document.getElementById("timeScrub");
   const show = state.world.enabled;
@@ -1341,7 +1601,7 @@ function syncTimeScrubScroll() {
   const apply = () => {
     if (document.getElementById("timeScrub").hidden) return;
     scrubSyncing = true;
-    scroller.scrollLeft = (timeOffsetHours - TIME_OFFSET_MIN) * scrubTickWidth();
+    scroller.scrollLeft = scrollLeftToCenterHour(timeOffsetHours);
     requestAnimationFrame(() => {
       scrubSyncing = false;
     });
@@ -1362,7 +1622,7 @@ function setTimeOffset(hours, { fromScroll = false } = {}) {
   if (changed) {
     tickWallClock();
     renderWorldClock(viewNow(), true);
-    if (state.world.droppedPin) renderInspectCard(viewNow());
+    if (droppedPins().length) renderInspectCard(viewNow());
   }
 }
 
@@ -1399,7 +1659,7 @@ function bindTimeScrub() {
     if (scrubSyncing) return;
     const w = scrubTickWidth();
     if (!w) return;
-    setTimeOffset(TIME_OFFSET_MIN + Math.round(scroller.scrollLeft / w), { fromScroll: true });
+    setTimeOffset(hoursFromScrubScroll(scroller.scrollLeft), { fromScroll: true });
   });
 
   scroller.addEventListener(
@@ -1569,10 +1829,57 @@ function init() {
   );
 
   document.getElementById("pinBtn").addEventListener("click", () => {
-    setPickMode(!pickMode);
+    if (pickMode) {
+      setPickMode(false);
+      return;
+    }
+    if (droppedPins().length >= MAX_DROPPED_PINS) {
+      flashPinHint(PIN_HINT_FULL);
+      return;
+    }
+    setPickMode(true);
   });
-  document.getElementById("inspectClose").addEventListener("click", () => {
-    clearDroppedPin();
+  document.getElementById("inspectStack").addEventListener("click", (e) => {
+    const card = e.target.closest(".inspect-card");
+    if (!card?.dataset.pinId) return;
+    if (e.target.closest(".inspect-close")) {
+      clearDroppedPin(card.dataset.pinId);
+      return;
+    }
+    onDroppedPinClick(card.dataset.pinId);
+  });
+
+  const googleSearch = document.getElementById("googleSearch");
+  const googleSearchInput = document.getElementById("googleSearchInput");
+
+  function looksLikeUrl(q) {
+    if (!q || /\s/.test(q)) return false;
+    try {
+      const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(q) ? q : `https://${q}`);
+      return url.hostname.includes(".");
+    } catch {
+      return false;
+    }
+  }
+
+  googleSearch.addEventListener("submit", (e) => {
+    const q = googleSearchInput.value.trim();
+    if (!q) {
+      e.preventDefault();
+      return;
+    }
+    if (looksLikeUrl(q)) {
+      e.preventDefault();
+      location.assign(/^[a-z][a-z0-9+.-]*:\/\//i.test(q) ? q : `https://${q}`);
+    }
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (anyDialogOpen() || isEditableTarget(e.target)) return;
+    if (e.key === "/" || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) {
+      e.preventDefault();
+      googleSearchInput.focus();
+    }
   });
 
   // Settings
@@ -1593,8 +1900,9 @@ function init() {
   const themeMenu = document.getElementById("themeMenu");
   themeBtn.addEventListener("click", () => {
     const r = themeBtn.getBoundingClientRect();
-    themeMenu.style.top = `${r.bottom + 8}px`;
-    themeMenu.style.left = `${Math.min(r.left, window.innerWidth - 180)}px`;
+    const menuW = 168;
+    themeMenu.style.top = `${r.top}px`;
+    themeMenu.style.left = `${Math.max(8, r.left - menuW - 8)}px`;
     themeMenu.showModal();
   });
   themeMenu.addEventListener("close", () => {
@@ -1719,7 +2027,7 @@ function init() {
     checkExpirations();
     renderStatus();
     renderWorldClock();
-    if (state.world.droppedPin) renderInspectCard();
+    if (droppedPins().length) renderInspectCard();
     const settingsOpen = document.getElementById("settingsDialog").open;
     if (settingsOpen) {
       renderAlarmList();

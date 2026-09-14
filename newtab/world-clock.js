@@ -5,6 +5,8 @@
 
 import { LAND_PATH, BORDERS_PATH } from "./world-map-data.js";
 import { subsolarPoint, terminatorPath, daylightPhase } from "./solar.js";
+import { MAP_CITIES, cityMinZoom } from "./cities.js";
+import { iconSvg } from "./weather.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -17,6 +19,25 @@ function svg(tag, attrs = {}) {
 /** Equirectangular projection into the "0 0 360 180" viewBox. */
 export const projectX = (lon) => lon + 180;
 export const projectY = (lat) => 90 - lat;
+
+/** Nearest catalogue city to a lat/lon, wrapping the date line. */
+export function nearestCity(lat, lon, cities = MAP_CITIES) {
+  const cos = Math.cos((lat * Math.PI) / 180);
+  let best = null;
+  let bestD = Infinity;
+  for (const city of cities) {
+    const dLat = city.lat - lat;
+    let dLon = city.lon - lon;
+    if (dLon > 180) dLon -= 360;
+    if (dLon < -180) dLon += 360;
+    const d = dLat * dLat + dLon * dLon * cos * cos;
+    if (d < bestD) {
+      bestD = d;
+      best = city;
+    }
+  }
+  return best;
+}
 
 /* ---------- Time helpers ---------- */
 
@@ -176,6 +197,43 @@ const MAP_W = 360;
 const MAP_H = 180;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
+const WEATHER_ICON_SIZE = 3.15;
+const WEATHER_ICON_GAP = 0.5;
+
+function placeLabel(city) {
+  return [city?.name, city?.country].filter(Boolean).join(", ");
+}
+
+function attachWeatherIcon(parent, prev, icon, night) {
+  const key = icon ? `${icon}|${night ? "n" : "d"}` : "";
+  if (prev?.key === key) return prev;
+  prev?.node?.remove();
+  if (!icon) return null;
+  const node = iconSvg(icon, night);
+  node.setAttribute("class", "wm-weather-icon");
+  node.setAttribute("width", String(WEATHER_ICON_SIZE));
+  node.setAttribute("height", String(WEATHER_ICON_SIZE));
+  node.setAttribute("stroke-width", "1.9");
+  parent.appendChild(node);
+  return { node, key };
+}
+
+function layoutIconMeta(textNode, iconNode, y) {
+  if (!iconNode || !textNode.textContent) {
+    textNode.setAttribute("x", "0");
+    textNode.setAttribute("text-anchor", "middle");
+    return;
+  }
+  const textW =
+    (typeof textNode.getComputedTextLength === "function" && textNode.getComputedTextLength()) ||
+    textNode.textContent.length * 1.55;
+  const total = WEATHER_ICON_SIZE + WEATHER_ICON_GAP + textW;
+  const left = -total / 2;
+  iconNode.setAttribute("x", left.toFixed(2));
+  iconNode.setAttribute("y", (y - WEATHER_ICON_SIZE * 0.78).toFixed(2));
+  textNode.setAttribute("text-anchor", "start");
+  textNode.setAttribute("x", (left + WEATHER_ICON_SIZE + WEATHER_ICON_GAP).toFixed(2));
+}
 
 export function createWorldMap() {
   const root = svg("svg", {
@@ -387,6 +445,9 @@ export function createWorldMap() {
   sun.appendChild(svg("circle", { class: "wm-sun-core", r: 2.2 }));
   root.appendChild(sun);
 
+  const gazetteer = svg("g", { class: "wm-gazetteer" });
+  root.appendChild(gazetteer);
+
   const pins = svg("g", { class: "wm-pins" });
   root.appendChild(pins);
 
@@ -403,9 +464,13 @@ export function createWorldMap() {
   let drag = null;
   let pickMode = false;
   let pickHandler = null;
-  let droppedPin = null;
+  let hoverHandler = null;
+  let visibleCitiesHandler = null;
+  let droppedPins = [];
+  let dropClickHandler = null;
   const slotByCity = new Map();
   const pinByCity = new Map();
+  const gazetteerById = new Map();
 
   function viewSize() {
     return { w: MAP_W / zoom, h: MAP_H / zoom };
@@ -416,6 +481,11 @@ export function createWorldMap() {
     vx = Math.min(Math.max(0, vx), MAP_W - w);
     vy = Math.min(Math.max(0, vy), MAP_H - h);
     root.setAttribute("viewBox", `${vx} ${vy} ${w} ${h}`);
+    syncGazetteer();
+    if (dropLayer.dataset.zoom !== String(zoom)) {
+      dropLayer.dataset.zoom = String(zoom);
+      renderDroppedPins();
+    }
   }
 
   function viewport() {
@@ -561,6 +631,148 @@ export function createWorldMap() {
     pinByCity.set(entry.city.id, { group: g, title, name, time });
   }
 
+  function createGazetteerPin(city) {
+    const g = svg("g", { class: "wm-pin wm-gaz is-hidden" });
+    g.appendChild(svg("circle", { class: "wm-gaz-halo", r: 3.2 }));
+    g.appendChild(svg("circle", { class: "wm-gaz-dot", r: 1.15 }));
+    const name = svg("text", {
+      class: "wm-pin-name wm-gaz-name",
+      x: 0,
+      y: -9.4,
+      "text-anchor": "middle",
+    });
+    name.textContent = placeLabel(city);
+    const meta = svg("text", {
+      class: "wm-pin-time wm-gaz-meta",
+      x: 0,
+      y: -5.4,
+      "text-anchor": "middle",
+    });
+    const title = svg("title");
+    title.textContent = placeLabel(city);
+    g.append(title, name, meta);
+    gazetteer.appendChild(g);
+    const node = { group: g, name, meta, title, city, weatherIcon: null };
+    gazetteerById.set(city.id, node);
+    return node;
+  }
+
+  function pinScale() {
+    return 1 / zoom;
+  }
+
+  function placeGazetteerPin(node, city) {
+    const x = projectX(city.lon);
+    const y = projectY(city.lat);
+    node.group.setAttribute(
+      "transform",
+      `translate(${x.toFixed(2)} ${y.toFixed(2)}) scale(${pinScale().toFixed(4)})`
+    );
+  }
+
+  function cityInView(city) {
+    const { w, h } = viewSize();
+    const pad = 6;
+    const x = projectX(city.lon);
+    const y = projectY(city.lat);
+    return x >= vx - pad && x <= vx + w + pad && y >= vy - pad && y <= vy + h + pad;
+  }
+
+  function extraLabelBudget() {
+    if (zoom >= 6) return 28;
+    if (zoom >= 4) return 18;
+    if (zoom >= 2.4) return 12;
+    if (zoom >= 1.55) return 8;
+    return 5;
+  }
+
+  function pickMapLabels() {
+    const selected = lastOpts?.cities || [];
+    const selectedIds = new Set(selected.map((c) => c.id));
+    const { w, h } = viewSize();
+    const cx = vx + w / 2;
+    const cy = vy + h / 2;
+
+    function score(city) {
+      const x = projectX(city.lon);
+      const y = projectY(city.lat);
+      const dist = ((x - cx) / Math.max(w, 1)) ** 2 + ((y - cy) / Math.max(h, 1)) ** 2;
+      return (city.rank ?? 3) + dist * 3;
+    }
+
+    const picked = [];
+    for (const city of selected) {
+      if (cityInView(city)) picked.push({ city, watched: true });
+    }
+
+    const extras = [];
+    for (const city of MAP_CITIES) {
+      if (selectedIds.has(city.id) || !cityInView(city)) continue;
+      if (zoom < cityMinZoom(city)) continue;
+      extras.push({ city, watched: false, score: score(city) });
+    }
+    extras.sort((a, b) => a.score - b.score || a.city.name.localeCompare(b.city.name));
+    picked.push(...extras.slice(0, extraLabelBudget()));
+    return picked;
+  }
+
+  function gazetteerReading(city) {
+    const date = lastOpts?.date || new Date();
+    const clockFormat = lastOpts?.clockFormat || "auto";
+    let readout = null;
+    try {
+      readout = cityReadout(city, date, clockFormat, subsolarPoint(date));
+    } catch {
+      readout = null;
+    }
+    const reading = lastOpts?.weather?.[city.id];
+    const time = readout?.time || "";
+    const meta = time && reading?.short ? `${time} · ${reading.short}` : time || reading?.short || "";
+    return { readout, reading, meta };
+  }
+
+  function paintGazetteerMeta(node, city) {
+    const { readout, reading, meta } = gazetteerReading(city);
+    const label = placeLabel(city);
+    node.name.textContent = label;
+    node.name.setAttribute("class", "wm-pin-name wm-gaz-name");
+    node.country?.remove();
+    node.country = null;
+    node.meta.setAttribute("class", "wm-pin-time wm-gaz-meta");
+    node.meta.setAttribute("y", "-5.4");
+    node.meta.textContent = meta;
+    node.weatherIcon = attachWeatherIcon(
+      node.group,
+      node.weatherIcon,
+      reading?.icon,
+      readout?.phase !== "day"
+    );
+    layoutIconMeta(node.meta, node.weatherIcon?.node, -5.4);
+    const extra = reading?.label ? ` ${reading.label}` : "";
+    node.title.textContent = meta ? `${label} — ${meta}${extra}` : label;
+  }
+
+  function syncGazetteer() {
+    if (!lastOpts?.showPins) {
+      gazetteer.setAttribute("display", "none");
+      return;
+    }
+    gazetteer.removeAttribute("display");
+    const picked = pickMapLabels();
+    const live = new Set(picked.map((p) => p.city.id));
+    for (const [id, node] of gazetteerById) {
+      if (!live.has(id)) node.group.classList.add("is-hidden");
+    }
+    for (const { city, watched } of picked) {
+      const node = gazetteerById.get(city.id) || createGazetteerPin(city);
+      node.group.classList.remove("is-hidden");
+      node.group.classList.toggle("is-watched", watched);
+      placeGazetteerPin(node, city);
+      paintGazetteerMeta(node, city);
+    }
+    visibleCitiesHandler?.(picked.map((p) => p.city));
+  }
+
   function renderPins(cities, date, clockFormat, sub, weather) {
     const live = new Set(cities.map((c) => c.id));
     for (const [id, node] of pinByCity) {
@@ -654,18 +866,54 @@ export function createWorldMap() {
       disasters = [],
     } = lastOpts;
     const sub = subsolarPoint(date);
-    if (showPins && cities.length) {
-      renderPins(cities, date, clockFormat, sub, weather);
+    if (showPins) {
+      pins.setAttribute("display", "none");
+      syncGazetteer();
     } else {
-      pins.replaceChildren();
-      pinByCity.clear();
+      pins.setAttribute("display", "none");
+      gazetteer.setAttribute("display", "none");
     }
     if (showDisasters && disasters.length) {
       renderDisasters(disasters);
     } else {
       disastersLayer.replaceChildren();
     }
-    renderDroppedPin();
+    renderDroppedPins();
+  }
+
+  function clientOnMap(clientX, clientY) {
+    const vp = viewport();
+    if (!vp) return false;
+    return (
+      clientX >= vp.originX &&
+      clientX <= vp.originX + vp.w * vp.scale &&
+      clientY >= vp.originY &&
+      clientY <= vp.originY + vp.h * vp.scale
+    );
+  }
+
+  function emitHover(e) {
+    if (!hoverHandler) return;
+    if (!e || drag || !clientOnMap(e.clientX, e.clientY)) {
+      hoverHandler(null);
+      return;
+    }
+    const { lat, lon } = lonLatFromClient(e.clientX, e.clientY);
+    hoverHandler({
+      city: nearestCity(lat, lon),
+      lat,
+      lon,
+      clientX: e.clientX,
+      clientY: e.clientY,
+    });
+  }
+
+  function setHoverHandler(handler = null) {
+    hoverHandler = handler;
+  }
+
+  function setVisibleCitiesHandler(handler = null) {
+    visibleCitiesHandler = handler;
   }
 
   function lonLatFromClient(clientX, clientY) {
@@ -676,17 +924,25 @@ export function createWorldMap() {
     };
   }
 
-  function renderDroppedPin() {
-    dropLayer.replaceChildren();
-    if (!droppedPin || !Number.isFinite(droppedPin.lat) || !Number.isFinite(droppedPin.lon)) {
-      return;
+  function droppedPinIdAt(clientX, clientY) {
+    const stack = document.elementsFromPoint?.(clientX, clientY) || [];
+    for (const el of stack) {
+      const g = el.closest?.(".wm-drop-pin");
+      const id = g?.getAttribute("data-id");
+      if (id) return id;
     }
-    const x = projectX(droppedPin.lon);
-    const y = projectY(droppedPin.lat);
+    return null;
+  }
+
+  function drawDroppedPin(pin) {
+    const x = projectX(pin.lon);
+    const y = projectY(pin.lat);
     const g = svg("g", {
-      class: "wm-drop-pin",
-      transform: `translate(${x.toFixed(2)} ${y.toFixed(2)})`,
+      class: pin.selected ? "wm-drop-pin is-selected" : "wm-drop-pin",
+      transform: `translate(${x.toFixed(2)} ${y.toFixed(2)}) scale(${(1 / zoom).toFixed(4)})`,
     });
+    if (pin.id) g.setAttribute("data-id", pin.id);
+    g.appendChild(svg("circle", { class: "wm-drop-hit", r: "7" }));
     const mark = svg("g", { class: "wm-drop-mark-wrap", transform: "scale(0.42)" });
     mark.appendChild(svg("path", {
       class: "wm-drop-mark",
@@ -701,7 +957,7 @@ export function createWorldMap() {
       y: -9.4,
       "text-anchor": "middle",
     });
-    name.textContent = droppedPin.name || "Pinned";
+    name.textContent = pin.name || "Pinned";
 
     const time = svg("text", {
       class: "wm-pin-time",
@@ -709,13 +965,31 @@ export function createWorldMap() {
       y: -5.4,
       "text-anchor": "middle",
     });
-    time.textContent = droppedPin.timeText || "";
+    time.textContent = pin.timeText || "";
 
     g.append(name, time);
+    const weatherIcon = attachWeatherIcon(
+      g,
+      null,
+      pin.weather?.icon,
+      pin.readout?.phase !== "day"
+    );
+    layoutIconMeta(time, weatherIcon?.node, -5.4);
     const title = svg("title");
-    title.textContent = [droppedPin.name, droppedPin.timeText].filter(Boolean).join(" — ");
+    title.textContent = [pin.name, pin.timeText, pin.weather?.label]
+      .filter(Boolean)
+      .join(" — ");
     g.appendChild(title);
-    dropLayer.appendChild(g);
+    return g;
+  }
+
+  function renderDroppedPins() {
+    const frag = document.createDocumentFragment();
+    for (const pin of droppedPins) {
+      if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lon)) continue;
+      frag.appendChild(drawDroppedPin(pin));
+    }
+    dropLayer.replaceChildren(frag);
   }
 
   function setPickMode(on, handler = null) {
@@ -724,9 +998,13 @@ export function createWorldMap() {
     root.classList.toggle("is-picking", pickMode);
   }
 
-  function setDroppedPin(pin) {
-    droppedPin = pin;
-    renderDroppedPin();
+  function setDroppedPins(pins = []) {
+    droppedPins = Array.isArray(pins) ? pins : [];
+    renderDroppedPins();
+  }
+
+  function setDroppedPinClickHandler(handler = null) {
+    dropClickHandler = handler;
   }
 
   function update({
@@ -773,7 +1051,11 @@ export function createWorldMap() {
   });
 
   root.addEventListener("pointermove", (e) => {
-    if (!drag) return;
+    if (!drag) {
+      emitHover(e);
+      return;
+    }
+    emitHover(null);
     const dist = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
     if (dist > 5) {
       if (!drag.moved && drag.pick) {
@@ -792,8 +1074,10 @@ export function createWorldMap() {
 
   function endPan(e) {
     if (!drag) return;
-    const wasClick = !drag.moved && drag.pick && pickHandler;
-    const point = wasClick ? lonLatFromClient(e.clientX, e.clientY) : null;
+    const wasClick = !drag.moved;
+    const wasPick = drag.pick && pickHandler;
+    const point = wasClick && wasPick ? lonLatFromClient(e.clientX, e.clientY) : null;
+    const pinId = wasClick && !wasPick ? droppedPinIdAt(e.clientX, e.clientY) : null;
     drag = null;
     root.classList.remove("is-panning");
     document.body.classList.remove("is-map-panning");
@@ -801,15 +1085,23 @@ export function createWorldMap() {
       root.releasePointerCapture(e.pointerId);
     }
     if (point) pickHandler(point);
+    else if (pinId) dropClickHandler?.(pinId);
   }
 
   root.addEventListener("selectstart", (e) => e.preventDefault());
-  root.addEventListener("pointerup", endPan);
-  root.addEventListener("pointercancel", endPan);
+  root.addEventListener("pointerup", (e) => {
+    endPan(e);
+    emitHover(e);
+  });
+  root.addEventListener("pointercancel", (e) => {
+    endPan(e);
+    emitHover(null);
+  });
+  root.addEventListener("pointerleave", () => emitHover(null));
   root.addEventListener("dblclick", (e) => {
     e.preventDefault();
     resetView();
   });
 
-  return { el: root, update, setPickMode, setDroppedPin };
+  return { el: root, update, setPickMode, setDroppedPins, setDroppedPinClickHandler, setHoverHandler, setVisibleCitiesHandler };
 }

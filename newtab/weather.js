@@ -81,6 +81,21 @@ export function iconMarkup(icon, night = false) {
     stroke-linecap="round" stroke-linejoin="round">${build(night)}</svg>`;
 }
 
+/** Same glyph as `iconMarkup`, as a real SVG node for the world map. */
+export function iconSvg(icon, night = false) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  node.setAttribute("viewBox", "0 0 24 24");
+  node.setAttribute("fill", "none");
+  node.setAttribute("stroke", "currentColor");
+  node.setAttribute("stroke-width", "1.6");
+  node.setAttribute("stroke-linecap", "round");
+  node.setAttribute("stroke-linejoin", "round");
+  node.setAttribute("aria-hidden", "true");
+  const build = WEATHER_ICONS[icon] || WEATHER_ICONS.cloud;
+  node.innerHTML = build(night);
+  return node;
+}
+
 /* ---------- Units ---------- */
 
 // The handful of places that still read Fahrenheit day to day.

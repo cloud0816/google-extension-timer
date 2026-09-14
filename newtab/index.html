@@ -18,6 +18,22 @@
     <div class="ambient" aria-hidden="true"></div>
 
     <header class="top-bar">
+      <form class="google-search" id="googleSearch" role="search" action="https://www.google.com/search" method="get">
+        <svg class="google-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m16 16 4.5 4.5" />
+        </svg>
+        <input
+          type="search"
+          id="googleSearchInput"
+          name="q"
+          placeholder="Search Google"
+          autocomplete="off"
+          spellcheck="false"
+          enterkeyhint="search"
+          aria-label="Search Google"
+        />
+      </form>
       <div class="top-actions">
         <button type="button" class="icon-btn" id="themeBtn" title="Theme" aria-label="Change theme">
           <svg class="icon theme-icon" data-for="system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
@@ -55,19 +71,13 @@
     </header>
 
     <p class="pin-hint" id="pinHint" hidden>Click a point on the map</p>
-    <aside class="inspect-card" id="inspectCard" hidden>
-      <header class="inspect-head">
-        <strong id="inspectName">Pinned point</strong>
-        <button type="button" class="icon-btn inspect-close" id="inspectClose" aria-label="Remove pin">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
-            <path d="M6 6l12 12M18 6 6 18" />
-          </svg>
-        </button>
-      </header>
-      <div class="inspect-time mono" id="inspectTime"></div>
-      <div class="inspect-weather" id="inspectWeather"></div>
-      <div class="inspect-meta" id="inspectMeta"></div>
-    </aside>
+    <div class="map-hover" id="mapHover" hidden>
+      <strong id="mapHoverCity"></strong>
+      <span id="mapHoverCountry"></span>
+      <span class="map-hover-meta" id="mapHoverMeta"></span>
+      <span class="map-hover-weather" id="mapHoverWeather" hidden></span>
+    </div>
+    <aside class="inspect-stack" id="inspectStack" hidden aria-label="Dropped pins"></aside>
 
     <main class="stage">
       <section class="hero">
@@ -267,11 +277,10 @@
 
             <ul class="list" id="worldList"></ul>
             <p class="hint">
-              Cities are ordered west to east by UTC offset. The map shades the half of
-              the world where the sun is down, marks the International Date Line, and
-              shows the point the sun is overhead. Scrub the hour ruler at the bottom,
-              or hold Ctrl and press ← / →, to shift time by an hour; add Shift to jump
-              a day.
+              Cities you add here always stay labeled on the map, with local time and
+              weather. Zoom in to reveal more places; zoom out to hide the extras.
+              Text stays the same size. Scrub the hour ruler at the bottom, or hold
+              Ctrl and press ← / →, to shift time by an hour; add Shift to jump a day.
             </p>
             <p class="hint" id="worldWeatherStatus"></p>
             <p class="hint" id="worldDisasterStatus"></p>
