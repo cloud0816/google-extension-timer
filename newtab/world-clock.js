@@ -679,11 +679,11 @@ export function createWorldMap() {
   }
 
   function extraLabelBudget() {
-    if (zoom >= 6) return 28;
-    if (zoom >= 4) return 18;
-    if (zoom >= 2.4) return 12;
-    if (zoom >= 1.55) return 8;
-    return 5;
+    if (zoom >= 6) return 10;
+    if (zoom >= 4) return 13;
+    if (zoom >= 2.4) return 15;
+    if (zoom >= 1.55) return 18;
+    return 0;
   }
 
   function pickMapLabels() {
