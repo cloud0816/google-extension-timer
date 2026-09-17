@@ -513,6 +513,7 @@ html[data-theme="dark"] .tab.active {
 }
 
 .field input[type="text"],
+.field input[type="search"],
 .field input[type="date"],
 .field input[type="time"],
 .field input[type="number"] {
@@ -1568,6 +1569,78 @@ html[data-theme="dark"] .wm-idl-label {
 .field select:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.city-picker {
+  margin-bottom: 0.85rem;
+}
+
+.city-combo {
+  position: relative;
+}
+
+.city-combo input {
+  width: 100%;
+  appearance: none;
+}
+
+.city-combo input::-webkit-search-decoration {
+  -webkit-appearance: none;
+}
+
+.city-combo input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.city-results {
+  position: fixed;
+  z-index: 30;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  max-height: min(16.5rem, 42vh);
+  overflow: auto;
+  background: var(--bg-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+
+.city-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.city-result:hover,
+.city-result.is-active {
+  background: var(--accent-soft);
+}
+
+.city-result-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.city-result-meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.city-results-empty {
+  padding: 0.7rem 0.65rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .toggle-row {

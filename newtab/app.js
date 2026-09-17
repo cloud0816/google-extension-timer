@@ -3,7 +3,7 @@
  * Data in localStorage; Chrome clears extension origin on uninstall.
  */
 
-import { ALL_CITIES, CITY_BY_ID, CITY_REGIONS, DEFAULT_CITY_IDS } from "./cities.js";
+import { ALL_CITIES, CITY_BY_ID, DEFAULT_CITY_IDS, searchCities } from "./cities.js";
 import { subsolarPoint } from "./solar.js";
 import { createWorldMap, cityReadout } from "./world-clock.js";
 import {
@@ -1071,26 +1071,7 @@ function renderWorldSettings() {
   document.getElementById("worldDisasterStatus").textContent = disasterStatusText();
   renderDisasterList();
 
-  const select = document.getElementById("worldCitySelect");
-  const chosen = new Set(world.cities);
-  const available = ALL_CITIES.filter((c) => !chosen.has(c.id));
-  const keep = select.value;
-  const groups = CITY_REGIONS.map((region) => {
-    const cities = available.filter((c) => c.region === region);
-    if (!cities.length) return null;
-    const group = document.createElement("optgroup");
-    group.label = region;
-    for (const c of cities) {
-      const opt = document.createElement("option");
-      opt.value = c.id;
-      opt.textContent = `${c.name} — ${c.country}`;
-      group.appendChild(opt);
-    }
-    return group;
-  }).filter(Boolean);
-  select.replaceChildren(...groups);
-  if (available.some((c) => c.id === keep)) select.value = keep;
-  select.disabled = available.length === 0;
+  syncCityPicker();
 
   const list = document.getElementById("worldList");
   if (!world.cities.length) {
@@ -1117,6 +1098,229 @@ function renderWorldSettings() {
       );
     })
   );
+}
+
+const CITY_PICKER_LIMIT = 12;
+let cityPickerHits = [];
+let cityPickerActive = -1;
+let cityPickerOpen = false;
+
+function availableWorldCities() {
+  const chosen = new Set(state.world.cities);
+  return ALL_CITIES.filter((c) => !chosen.has(c.id));
+}
+
+function addWorldCity(id) {
+  if (!id || !CITY_BY_ID.has(id) || state.world.cities.includes(id)) return false;
+  state.world.cities.push(id);
+  const search = document.getElementById("worldCitySearch");
+  if (search) search.value = "";
+  closeCityPicker();
+  persist();
+  return true;
+}
+
+function syncCityPicker() {
+  const search = document.getElementById("worldCitySearch");
+  const addBtn = document.getElementById("worldAddBtn");
+  const leftover = availableWorldCities().length > 0;
+  if (search) {
+    search.disabled = !leftover;
+    if (!leftover) {
+      search.placeholder = "All catalogue cities added";
+      closeCityPicker();
+    } else {
+      search.placeholder = "Search city, country, or timezone";
+    }
+  }
+  if (addBtn) addBtn.disabled = !leftover;
+  if (cityPickerOpen) paintCityResults();
+}
+
+function closeCityPicker() {
+  cityPickerOpen = false;
+  cityPickerActive = -1;
+  const results = document.getElementById("worldCityResults");
+  const search = document.getElementById("worldCitySearch");
+  if (results) {
+    results.hidden = true;
+    results.replaceChildren();
+  }
+  search?.setAttribute("aria-expanded", "false");
+  search?.removeAttribute("aria-activedescendant");
+}
+
+function placeCityResults() {
+  const search = document.getElementById("worldCitySearch");
+  const results = document.getElementById("worldCityResults");
+  if (!search || !results || results.hidden) return;
+  const box = search.getBoundingClientRect();
+  const maxH = Math.min(264, window.innerHeight * 0.42);
+  const gap = 6;
+  const spaceBelow = window.innerHeight - box.bottom - gap - 8;
+  const openUp = spaceBelow < 120 && box.top > spaceBelow;
+  const height = Math.max(96, openUp ? box.top - gap - 8 : spaceBelow);
+  results.style.left = `${Math.round(box.left)}px`;
+  results.style.width = `${Math.round(box.width)}px`;
+  results.style.maxHeight = `${Math.round(Math.min(height, maxH))}px`;
+  if (openUp) {
+    results.style.top = "auto";
+    results.style.bottom = `${Math.round(window.innerHeight - box.top + gap)}px`;
+  } else {
+    results.style.bottom = "auto";
+    results.style.top = `${Math.round(box.bottom + gap)}px`;
+  }
+}
+
+function setCityPickerActive(index) {
+  const results = document.getElementById("worldCityResults");
+  const search = document.getElementById("worldCitySearch");
+  if (!results) return;
+  const buttons = [...results.querySelectorAll(".city-result")];
+  if (!buttons.length) {
+    cityPickerActive = -1;
+    search?.removeAttribute("aria-activedescendant");
+    return;
+  }
+  cityPickerActive = ((index % buttons.length) + buttons.length) % buttons.length;
+  buttons.forEach((btn, i) => {
+    const on = i === cityPickerActive;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", String(on));
+    if (on) {
+      search?.setAttribute("aria-activedescendant", btn.id);
+      btn.scrollIntoView({ block: "nearest" });
+    }
+  });
+}
+
+function paintCityResults() {
+  const search = document.getElementById("worldCitySearch");
+  const results = document.getElementById("worldCityResults");
+  if (!search || !results || !cityPickerOpen) return;
+
+  const leftover = availableWorldCities();
+  cityPickerHits = leftover.length
+    ? searchCities(search.value, leftover, { limit: CITY_PICKER_LIMIT })
+    : [];
+
+  if (!cityPickerHits.length) {
+    const empty = document.createElement("li");
+    empty.className = "city-results-empty";
+    empty.textContent = leftover.length
+      ? "No matching city, country, or timezone"
+      : "All catalogue cities added";
+    results.replaceChildren(empty);
+    cityPickerActive = -1;
+    search.removeAttribute("aria-activedescendant");
+    results.hidden = false;
+    search.setAttribute("aria-expanded", "true");
+    placeCityResults();
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  cityPickerHits.forEach((hit) => {
+    const { city, meta } = hit;
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "city-result";
+    btn.id = `worldCityOpt-${city.id}`;
+    btn.setAttribute("role", "option");
+    btn.dataset.id = city.id;
+    btn.setAttribute("aria-selected", "false");
+
+    const name = document.createElement("span");
+    name.className = "city-result-name";
+    name.textContent = `${city.name}, ${city.country}`;
+
+    const tzBits = [city.tz];
+    if (meta.tzShort && !/^(utc|gmt)/i.test(meta.tzShort.replace(/\s/g, ""))) {
+      tzBits.push(meta.tzShort);
+    }
+    tzBits.push(meta.offsetLabel);
+    const unique = [...new Set(tzBits.filter(Boolean))];
+    const metaLine = document.createElement("span");
+    metaLine.className = "city-result-meta";
+    metaLine.textContent = unique.join(" · ");
+
+    btn.append(name, metaLine);
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
+    btn.addEventListener("click", () => addWorldCity(city.id));
+    li.appendChild(btn);
+    frag.appendChild(li);
+  });
+  results.replaceChildren(frag);
+  results.hidden = false;
+  search.setAttribute("aria-expanded", "true");
+  setCityPickerActive(cityPickerActive < 0 ? 0 : Math.min(cityPickerActive, cityPickerHits.length - 1));
+  placeCityResults();
+}
+
+function openCityPicker() {
+  if (document.getElementById("worldCitySearch")?.disabled) return;
+  cityPickerOpen = true;
+  paintCityResults();
+}
+
+function bindCityPicker() {
+  const search = document.getElementById("worldCitySearch");
+  const picker = document.getElementById("worldCityPicker");
+  const sheet = document.querySelector(".settings-sheet");
+  if (!search) return;
+
+  search.addEventListener("focus", () => openCityPicker());
+  search.addEventListener("input", () => {
+    cityPickerActive = 0;
+    openCityPicker();
+  });
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (cityPickerOpen) {
+        e.preventDefault();
+        closeCityPicker();
+      }
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!cityPickerOpen) openCityPicker();
+      else setCityPickerActive(cityPickerActive + 1);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!cityPickerOpen) openCityPicker();
+      else setCityPickerActive(cityPickerActive - 1);
+      return;
+    }
+    if (e.key === "Enter" && cityPickerOpen) {
+      const hit = cityPickerHits[cityPickerActive] || cityPickerHits[0];
+      if (hit) {
+        e.preventDefault();
+        addWorldCity(hit.city.id);
+      }
+    }
+  });
+
+  document.addEventListener("pointerdown", (e) => {
+    if (!cityPickerOpen) return;
+    if (picker?.contains(e.target) || document.getElementById("worldCityResults")?.contains(e.target)) {
+      return;
+    }
+    closeCityPicker();
+  });
+  sheet?.addEventListener(
+    "scroll",
+    () => {
+      if (cityPickerOpen) placeCityResults();
+    },
+    { passive: true }
+  );
+  window.addEventListener("resize", () => {
+    if (cityPickerOpen) placeCityResults();
+  });
 }
 
 /* ---------- Status (home) ---------- */
@@ -1748,6 +1952,7 @@ function switchPanel(name) {
     panel.classList.toggle("is-active", on);
     panel.hidden = !on;
   });
+  if (name !== "world") closeCityPicker();
 }
 
 /* ---------- Init ---------- */
@@ -1773,6 +1978,8 @@ function init() {
   document.getElementById("timerDurationForm").addEventListener("submit", addDurationTimer);
   document.getElementById("timerEndForm").addEventListener("submit", addEndTimer);
   document.getElementById("stopwatchForm").addEventListener("submit", addStopwatch);
+
+  bindCityPicker();
 
   // World clock
   document.getElementById("worldEnabled").addEventListener("change", (e) => {
@@ -1811,10 +2018,15 @@ function init() {
   });
   document.getElementById("worldForm").addEventListener("submit", (e) => {
     e.preventDefault();
-    const id = document.getElementById("worldCitySelect").value;
-    if (!id || !CITY_BY_ID.has(id) || state.world.cities.includes(id)) return;
-    state.world.cities.push(id);
-    persist();
+    const leftover = availableWorldCities();
+    const query = document.getElementById("worldCitySearch")?.value || "";
+    if (!query.trim() && !cityPickerOpen) return;
+    const hits =
+      cityPickerOpen && cityPickerHits.length
+        ? cityPickerHits
+        : searchCities(query, leftover, { limit: CITY_PICKER_LIMIT });
+    const hit = hits[Math.max(0, cityPickerActive)] || hits[0];
+    if (hit) addWorldCity(hit.city.id);
   });
   document.getElementById("worldRow").addEventListener(
     "wheel",
@@ -1891,6 +2103,7 @@ function init() {
   document.getElementById("settingsCloseBtn").addEventListener("click", () => {
     settingsDialog.close();
   });
+  settingsDialog.addEventListener("close", () => closeCityPicker());
   settingsDialog.addEventListener("click", (e) => {
     if (e.target === settingsDialog) settingsDialog.close();
   });
