@@ -5,9 +5,61 @@
  * tz   IANA zone — Intl handles DST, so offsets are never hard-coded
  * lat/lon  used to place the pin on the map and to work out day vs night
  * rank map zoom gate: 1 = always at world view, 5 = only when well zoomed in
+ * capital  national capital — distinct map color and earlier zoom gate
  */
 
 import { COUNTRY_CITIES } from "./country-cities.js";
+
+/** Watch-list cities that are national (or SAR) capitals. */
+const WATCH_CAPITALS = new Set([
+  "mexico_city",
+  "bogota",
+  "santiago",
+  "buenos_aires",
+  "reykjavik",
+  "lisbon",
+  "london",
+  "dublin",
+  "madrid",
+  "paris",
+  "amsterdam",
+  "berlin",
+  "rome",
+  "stockholm",
+  "warsaw",
+  "cairo",
+  "athens",
+  "helsinki",
+  "nairobi",
+  "moscow",
+  "tehran",
+  "delhi",
+  "dhaka",
+  "bangkok",
+  "jakarta",
+  "singapore",
+  "hong_kong",
+  "beijing",
+  "taipei",
+  "seoul",
+  "tokyo",
+]);
+
+/** Entries in COUNTRY_CITIES that are major cities, not capitals. */
+const COUNTRY_NON_CAPITALS = new Set([
+  "zurich",
+  "almaty",
+  "ho_chi_minh",
+  "yangon",
+  "abidjan",
+]);
+
+function withCapitalFlag(city, fromCountryList) {
+  const capital = fromCountryList
+    ? !COUNTRY_NON_CAPITALS.has(city.id)
+    : WATCH_CAPITALS.has(city.id);
+  return capital ? { ...city, capital: true } : city;
+}
 
 export const CITIES = [
   // Americas
@@ -78,8 +130,11 @@ export const CITIES = [
 ];
 
 const byId = new Map();
-for (const city of [...CITIES, ...COUNTRY_CITIES]) {
-  if (!byId.has(city.id)) byId.set(city.id, city);
+for (const city of CITIES) {
+  if (!byId.has(city.id)) byId.set(city.id, withCapitalFlag(city, false));
+}
+for (const city of COUNTRY_CITIES) {
+  if (!byId.has(city.id)) byId.set(city.id, withCapitalFlag(city, true));
 }
 
 export const CITY_BY_ID = byId;
@@ -95,8 +150,14 @@ export const CITY_REGIONS = ["Americas", "Europe", "Africa", "Asia", "Oceania", 
 /** Lowest zoom at which a rank is drawn. */
 export const RANK_MIN_ZOOM = { 1: 1, 2: 1.55, 3: 2.4, 4: 3.7, 5: 5.2 };
 
+/** Capitals unlock one zoom level earlier than their catalogue rank. */
+export function mapRank(city) {
+  const rank = city.rank ?? 3;
+  return city.capital ? Math.max(1, rank - 1) : rank;
+}
+
 export function cityMinZoom(city) {
-  return RANK_MIN_ZOOM[city.rank] ?? RANK_MIN_ZOOM[3];
+  return RANK_MIN_ZOOM[mapRank(city)] ?? RANK_MIN_ZOOM[3];
 }
 
 /** Shown on a fresh install — the ones most people actually watch. */

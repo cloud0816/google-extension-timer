@@ -837,6 +837,7 @@ html:not([data-theme="dark"]) .btn.primary {
   --map-time: #0b6a62;
   --map-pin-day: #f59e0b;
   --map-pin-night: #6366f1;
+  --map-pin-capital: #0f766e;
   --map-scrim: linear-gradient(
     180deg,
     rgba(232, 236, 239, 0.84) 0%,
@@ -861,6 +862,7 @@ html[data-theme="dark"] {
   --map-time: #7fd1f5;
   --map-pin-day: #fbbf24;
   --map-pin-night: #a5b4fc;
+  --map-pin-capital: #2dd4bf;
   --map-scrim: linear-gradient(
     180deg,
     rgba(10, 14, 22, 0.82) 0%,
@@ -1349,10 +1351,23 @@ html[data-theme="dark"] .wm-idl-label {
   opacity: 0.45;
 }
 
+.wm-pin.is-capital .wm-pin-halo {
+  fill: var(--map-pin-capital);
+  opacity: 0.42;
+}
+
 .wm-pin-dot {
   fill: var(--map-label);
   stroke: var(--map-label-halo);
   stroke-width: 0.35;
+}
+
+.wm-pin.is-capital .wm-pin-dot {
+  fill: var(--map-pin-capital);
+}
+
+.wm-pin.is-capital .wm-pin-name {
+  fill: var(--map-pin-capital);
 }
 
 .wm-pin-name,
@@ -1391,8 +1406,25 @@ html[data-theme="dark"] .wm-idl-label {
   opacity: 0.42;
 }
 
+.wm-gaz.is-capital .wm-gaz-halo {
+  fill: var(--map-pin-capital);
+  opacity: 0.3;
+}
+
+.wm-gaz.is-capital.is-watched .wm-gaz-halo {
+  opacity: 0.5;
+}
+
 .wm-gaz-dot {
   fill: var(--map-label);
+}
+
+.wm-gaz.is-capital .wm-gaz-dot {
+  fill: var(--map-pin-capital);
+}
+
+.wm-gaz.is-capital .wm-gaz-name {
+  fill: var(--map-pin-capital);
 }
 
 .wm-gaz-name,

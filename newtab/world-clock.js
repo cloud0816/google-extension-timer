@@ -5,7 +5,7 @@
 
 import { LAND_PATH, BORDERS_PATH } from "./world-map-data.js";
 import { subsolarPoint, terminatorPath, daylightPhase } from "./solar.js";
-import { MAP_CITIES, cityMinZoom } from "./cities.js";
+import { MAP_CITIES, cityMinZoom, mapRank } from "./cities.js";
 import { iconSvg } from "./weather.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -600,8 +600,12 @@ export function createWorldMap() {
     );
   }
 
+  function pinClass(city, phase) {
+    return `wm-pin is-${phase}${city.capital ? " is-capital" : ""}`;
+  }
+
   function createPin(entry) {
-    const g = svg("g", { class: `wm-pin is-${entry.readout.phase}` });
+    const g = svg("g", { class: pinClass(entry.city, entry.readout.phase) });
     g.appendChild(svg("circle", { class: "wm-pin-halo", cx: entry.x, cy: entry.y, r: 3.1 }));
     g.appendChild(svg("circle", { class: "wm-pin-dot", cx: entry.x, cy: entry.y, r: 1.2 }));
 
@@ -632,9 +636,11 @@ export function createWorldMap() {
   }
 
   function createGazetteerPin(city) {
-    const g = svg("g", { class: "wm-pin wm-gaz is-hidden" });
-    g.appendChild(svg("circle", { class: "wm-gaz-halo", r: 3.2 }));
-    g.appendChild(svg("circle", { class: "wm-gaz-dot", r: 1.15 }));
+    const g = svg("g", {
+      class: `wm-pin wm-gaz is-hidden${city.capital ? " is-capital" : ""}`,
+    });
+    g.appendChild(svg("circle", { class: "wm-gaz-halo", r: city.capital ? 3.6 : 3.2 }));
+    g.appendChild(svg("circle", { class: "wm-gaz-dot", r: city.capital ? 1.35 : 1.15 }));
     const name = svg("text", {
       class: "wm-pin-name wm-gaz-name",
       x: 0,
@@ -697,7 +703,8 @@ export function createWorldMap() {
       const x = projectX(city.lon);
       const y = projectY(city.lat);
       const dist = ((x - cx) / Math.max(w, 1)) ** 2 + ((y - cy) / Math.max(h, 1)) ** 2;
-      return (city.rank ?? 3) + dist * 3;
+      // Capitals win label slots over same-rank cities.
+      return mapRank(city) + dist * 3 + (city.capital ? -0.9 : 0);
     }
 
     const picked = [];
@@ -767,6 +774,7 @@ export function createWorldMap() {
       const node = gazetteerById.get(city.id) || createGazetteerPin(city);
       node.group.classList.remove("is-hidden");
       node.group.classList.toggle("is-watched", watched);
+      node.group.classList.toggle("is-capital", !!city.capital);
       placeGazetteerPin(node, city);
       paintGazetteerMeta(node, city);
     }
@@ -804,7 +812,7 @@ export function createWorldMap() {
         createPin(entry);
         continue;
       }
-      node.group.setAttribute("class", `wm-pin is-${entry.readout.phase}`);
+      node.group.setAttribute("class", pinClass(entry.city, entry.readout.phase));
       node.title.textContent = pinTitle(entry);
       node.time.textContent = entry.timeText;
     }
