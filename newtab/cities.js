@@ -9,6 +9,7 @@
  */
 
 import { COUNTRY_CITIES } from "./country-cities.js";
+import { EXTRA_CITIES } from "./extra-cities.js";
 
 /** Watch-list cities that are national (or SAR) capitals. */
 const WATCH_CAPITALS = new Set([
@@ -135,6 +136,11 @@ for (const city of CITIES) {
 }
 for (const city of COUNTRY_CITIES) {
   if (!byId.has(city.id)) byId.set(city.id, withCapitalFlag(city, true));
+}
+for (const city of EXTRA_CITIES) {
+  if (!byId.has(city.id)) {
+    byId.set(city.id, { ...city, capital: Boolean(city.capital) });
+  }
 }
 
 export const CITY_BY_ID = byId;

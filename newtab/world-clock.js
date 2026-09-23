@@ -499,6 +499,8 @@ export function createWorldMap() {
   let hoverHandler = null;
   let visibleCitiesHandler = null;
   let hoveredCountry = null;
+  let hoverLat = null;
+  let hoverLon = null;
   let droppedPins = [];
   let dropClickHandler = null;
   const slotByCity = new Map();
@@ -745,7 +747,19 @@ export function createWorldMap() {
   /** When zoomed, add this many capitals from countries nearest the map center. */
   const CENTER_COUNTRY_CAPITALS = 3;
 
-  function setHoveredCountry(country) {
+  /** How many cities to reveal for a hovered country at the current zoom. */
+  function countryHoverBudget() {
+    // World view: capital + up to 2 more.
+    if (zoom < 1.55) return 3;
+    if (zoom < 2.4) return 6;
+    if (zoom < 3.7) return 10;
+    if (zoom < 5.2) return 16;
+    return 28;
+  }
+
+  function setHoveredCountry(country, lat = null, lon = null) {
+    hoverLat = Number.isFinite(lat) ? lat : null;
+    hoverLon = Number.isFinite(lon) ? lon : null;
     const next = country || null;
     if (next === hoveredCountry) return;
     hoveredCountry = next;
@@ -766,6 +780,17 @@ export function createWorldMap() {
       const x = projectX(city.lon);
       const y = projectY(city.lat);
       return ((x - cx) / Math.max(w, 1)) ** 2 + ((y - cy) / Math.max(h, 1)) ** 2;
+    }
+
+    function distFromHover(city) {
+      if (!Number.isFinite(hoverLat) || !Number.isFinite(hoverLon)) {
+        return distFromCenter(city);
+      }
+      const cos = Math.cos((hoverLat * Math.PI) / 180);
+      let dLon = city.lon - hoverLon;
+      if (dLon > 180) dLon -= 360;
+      if (dLon < -180) dLon += 360;
+      return (city.lat - hoverLat) ** 2 + dLon * dLon * cos * cos;
     }
 
     // Settings / watch-list cities always stay labeled.
@@ -793,10 +818,24 @@ export function createWorldMap() {
       }
     }
 
-    // Hovering a country reveals its cities at any zoom (including world view).
+    // Hover country: city count grows with zoom (capital first, then nearby majors).
     if (hoveredCountry) {
+      const budget = countryHoverBudget();
+      const candidates = [];
       for (const city of citiesInCountry(hoveredCountry)) {
         if (seen.has(city.id) || !cityInView(city)) continue;
+        candidates.push({
+          city,
+          score:
+            (city.capital ? 0 : 10) +
+            (city.rank ?? 3) +
+            distFromHover(city) * 0.15,
+        });
+      }
+      candidates.sort(
+        (a, b) => a.score - b.score || a.city.name.localeCompare(b.city.name)
+      );
+      for (const { city } of candidates.slice(0, budget)) {
         picked.push({ city, watched: selectedIds.has(city.id), countryHover: true });
         seen.add(city.id);
       }
@@ -1001,7 +1040,7 @@ export function createWorldMap() {
     const near =
       city && cityDistanceDeg(city, lat, lon) <= COUNTRY_HOVER_MAX_DEG ? city : null;
     const country = near?.country || null;
-    setHoveredCountry(country);
+    setHoveredCountry(country, lat, lon);
     hoverHandler({
       city: near,
       country,
