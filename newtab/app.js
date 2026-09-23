@@ -389,6 +389,7 @@ function selectedCities() {
 
 let mapLabelCities = [];
 let mapLabelWeatherTimer = 0;
+let hoverWeatherCity = null;
 
 function weatherTargetCities() {
   const byId = new Map();
@@ -396,6 +397,7 @@ function weatherTargetCities() {
   for (const city of mapLabelCities) {
     if (city?.id) byId.set(city.id, city);
   }
+  if (hoverWeatherCity?.id) byId.set(hoverWeatherCity.id, hoverWeatherCity);
   return [...byId.values()];
 }
 
@@ -642,21 +644,25 @@ function updateMapHover(hit) {
   const countryEl = document.getElementById("mapHoverCountry");
   const metaEl = document.getElementById("mapHoverMeta");
   const weatherEl = document.getElementById("mapHoverWeather");
-  if (!hit?.city) {
+  const focus = hit?.city;
+  if (!focus) {
     el.hidden = true;
+    hoverWeatherCity = null;
     return;
   }
-  cityEl.textContent = [hit.city.name, hit.city.country].filter(Boolean).join(", ");
-  countryEl.hidden = true;
+  cityEl.textContent = focus.name;
+  countryEl.textContent = focus.country || "";
+  countryEl.hidden = !focus.country;
+
   let readout = null;
   try {
-    readout = cityReadout(hit.city, viewNow(), state.world.clockFormat);
+    readout = cityReadout(focus, viewNow(), state.world.clockFormat);
   } catch {
     readout = null;
   }
   metaEl.textContent = readout?.time || "";
   metaEl.hidden = !metaEl.textContent;
-  const reading = weatherFor(hit.city.id);
+  const reading = weatherFor(focus.id);
   if (reading) {
     const { label, icon } = describeCode(reading.code);
     const temp = formatTemp(reading.tempC, state.world.tempUnit);
@@ -665,6 +671,17 @@ function updateMapHover(hit) {
   } else {
     weatherEl.replaceChildren();
     weatherEl.hidden = true;
+    if (state.world.showWeather) {
+      hoverWeatherCity = focus;
+      clearTimeout(mapLabelWeatherTimer);
+      mapLabelWeatherTimer = setTimeout(() => {
+        refreshWeather().then(() => {
+          if (hoverWeatherCity?.id === focus.id && !el.hidden) {
+            updateMapHover(hit);
+          }
+        });
+      }, 180);
+    }
   }
   el.hidden = false;
   const pad = 14;

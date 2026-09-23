@@ -5,7 +5,8 @@
 
 import { LAND_PATH, BORDERS_PATH } from "./world-map-data.js";
 import { subsolarPoint, terminatorPath, daylightPhase } from "./solar.js";
-import { MAP_CITIES, cityMinZoom, mapRank } from "./cities.js";
+import { MAP_CITIES, citiesInCountry } from "./cities.js";
+import { SEA_LABELS, seaMinZoom } from "./seas.js";
 import { iconSvg } from "./weather.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -38,6 +39,18 @@ export function nearestCity(lat, lon, cities = MAP_CITIES) {
   }
   return best;
 }
+
+/** Rough angular distance in degrees (date-line aware). */
+function cityDistanceDeg(city, lat, lon) {
+  const cos = Math.cos((lat * Math.PI) / 180);
+  let dLon = city.lon - lon;
+  if (dLon > 180) dLon -= 360;
+  if (dLon < -180) dLon += 360;
+  return Math.sqrt((city.lat - lat) ** 2 + dLon * dLon * cos * cos);
+}
+
+/** Max distance to treat a hover as belonging to a city's country. */
+const COUNTRY_HOVER_MAX_DEG = 14;
 
 /* ---------- Time helpers ---------- */
 
@@ -411,6 +424,25 @@ export function createWorldMap() {
   idlLabelEdge.textContent = "Date line";
   root.appendChild(idlLabelEdge);
 
+  const seasLayer = svg("g", { class: "wm-seas" });
+  const seaNodes = SEA_LABELS.map((sea) => {
+    const g = svg("g", {
+      class: `wm-sea is-rank-${sea.rank}${sea.rank === 1 ? " is-ocean" : ""}`,
+    });
+    const text = svg("text", {
+      class: sea.rank === 1 ? "wm-sea-label is-ocean" : "wm-sea-label",
+      "text-anchor": "middle",
+      dy: "0.35em",
+    });
+    text.textContent = sea.name;
+    const title = svg("title");
+    title.textContent = sea.name;
+    g.append(title, text);
+    seasLayer.appendChild(g);
+    return { sea, group: g };
+  });
+  root.appendChild(seasLayer);
+
   const compass = svg("g", { class: "wm-compass", transform: "translate(58 128)" });
   compass.appendChild(svg("circle", { class: "wm-compass-disk", r: 11.4 }));
   compass.appendChild(svg("circle", { class: "wm-compass-ring", r: 10 }));
@@ -466,6 +498,7 @@ export function createWorldMap() {
   let pickHandler = null;
   let hoverHandler = null;
   let visibleCitiesHandler = null;
+  let hoveredCountry = null;
   let droppedPins = [];
   let dropClickHandler = null;
   const slotByCity = new Map();
@@ -481,10 +514,35 @@ export function createWorldMap() {
     vx = Math.min(Math.max(0, vx), MAP_W - w);
     vy = Math.min(Math.max(0, vy), MAP_H - h);
     root.setAttribute("viewBox", `${vx} ${vy} ${w} ${h}`);
+    syncSeas();
     syncGazetteer();
     if (dropLayer.dataset.zoom !== String(zoom)) {
       dropLayer.dataset.zoom = String(zoom);
       renderDroppedPins();
+    }
+  }
+
+  function seaInView(sea) {
+    const { w, h } = viewSize();
+    const pad = 10;
+    const x = projectX(sea.lon);
+    const y = projectY(sea.lat);
+    return x >= vx - pad && x <= vx + w + pad && y >= vy - pad && y <= vy + h + pad;
+  }
+
+  function syncSeas() {
+    const scale = 1 / zoom;
+    for (const { sea, group } of seaNodes) {
+      const show = zoom >= seaMinZoom(sea) && seaInView(sea);
+      group.classList.toggle("is-hidden", !show);
+      if (!show) continue;
+      const x = projectX(sea.lon);
+      const y = projectY(sea.lat);
+      const rot = sea.rotate || 0;
+      group.setAttribute(
+        "transform",
+        `translate(${x.toFixed(2)} ${y.toFixed(2)}) scale(${scale.toFixed(4)}) rotate(${rot})`
+      );
     }
   }
 
@@ -684,12 +742,14 @@ export function createWorldMap() {
     return x >= vx - pad && x <= vx + w + pad && y >= vy - pad && y <= vy + h + pad;
   }
 
-  function extraLabelBudget() {
-    if (zoom >= 6) return 10;
-    if (zoom >= 4) return 13;
-    if (zoom >= 2.4) return 15;
-    if (zoom >= 1.55) return 18;
-    return 0;
+  /** When zoomed, add this many capitals from countries nearest the map center. */
+  const CENTER_COUNTRY_CAPITALS = 3;
+
+  function setHoveredCountry(country) {
+    const next = country || null;
+    if (next === hoveredCountry) return;
+    hoveredCountry = next;
+    if (lastOpts?.showPins) syncGazetteer();
   }
 
   function pickMapLabels() {
@@ -698,28 +758,50 @@ export function createWorldMap() {
     const { w, h } = viewSize();
     const cx = vx + w / 2;
     const cy = vy + h / 2;
+    const seen = new Set();
+    const picked = [];
+    const zoomedIn = zoom >= 1.55;
 
-    function score(city) {
+    function distFromCenter(city) {
       const x = projectX(city.lon);
       const y = projectY(city.lat);
-      const dist = ((x - cx) / Math.max(w, 1)) ** 2 + ((y - cy) / Math.max(h, 1)) ** 2;
-      // Capitals win label slots over same-rank cities.
-      return mapRank(city) + dist * 3 + (city.capital ? -0.9 : 0);
+      return ((x - cx) / Math.max(w, 1)) ** 2 + ((y - cy) / Math.max(h, 1)) ** 2;
     }
 
-    const picked = [];
+    // Settings / watch-list cities always stay labeled.
     for (const city of selected) {
-      if (cityInView(city)) picked.push({ city, watched: true });
+      if (!cityInView(city)) continue;
+      picked.push({ city, watched: true });
+      seen.add(city.id);
     }
 
-    const extras = [];
-    for (const city of MAP_CITIES) {
-      if (selectedIds.has(city.id) || !cityInView(city)) continue;
-      if (zoom < cityMinZoom(city)) continue;
-      extras.push({ city, watched: false, score: score(city) });
+    // When zoomed: add 3 capitals from countries nearest the map center.
+    if (zoomedIn) {
+      const nearestByCountry = new Map();
+      for (const city of MAP_CITIES) {
+        if (!city.capital || !cityInView(city) || seen.has(city.id)) continue;
+        const dist = distFromCenter(city);
+        const prev = nearestByCountry.get(city.country);
+        if (!prev || dist < prev.dist) nearestByCountry.set(city.country, { city, dist });
+      }
+      const centerCapitals = [...nearestByCountry.values()]
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, CENTER_COUNTRY_CAPITALS);
+      for (const { city } of centerCapitals) {
+        picked.push({ city, watched: false });
+        seen.add(city.id);
+      }
     }
-    extras.sort((a, b) => a.score - b.score || a.city.name.localeCompare(b.city.name));
-    picked.push(...extras.slice(0, extraLabelBudget()));
+
+    // Hovering a country reveals its cities at any zoom (including world view).
+    if (hoveredCountry) {
+      for (const city of citiesInCountry(hoveredCountry)) {
+        if (seen.has(city.id) || !cityInView(city)) continue;
+        picked.push({ city, watched: selectedIds.has(city.id), countryHover: true });
+        seen.add(city.id);
+      }
+    }
+
     return picked;
   }
 
@@ -768,13 +850,17 @@ export function createWorldMap() {
     const picked = pickMapLabels();
     const live = new Set(picked.map((p) => p.city.id));
     for (const [id, node] of gazetteerById) {
-      if (!live.has(id)) node.group.classList.add("is-hidden");
+      if (!live.has(id)) {
+        node.group.classList.add("is-hidden");
+        node.group.classList.remove("is-country-hover");
+      }
     }
-    for (const { city, watched } of picked) {
+    for (const { city, watched, countryHover } of picked) {
       const node = gazetteerById.get(city.id) || createGazetteerPin(city);
       node.group.classList.remove("is-hidden");
       node.group.classList.toggle("is-watched", watched);
       node.group.classList.toggle("is-capital", !!city.capital);
+      node.group.classList.toggle("is-country-hover", !!countryHover && !city.capital);
       placeGazetteerPin(node, city);
       paintGazetteerMeta(node, city);
     }
@@ -901,14 +987,25 @@ export function createWorldMap() {
   }
 
   function emitHover(e) {
-    if (!hoverHandler) return;
+    if (!hoverHandler) {
+      setHoveredCountry(null);
+      return;
+    }
     if (!e || drag || !clientOnMap(e.clientX, e.clientY)) {
+      setHoveredCountry(null);
       hoverHandler(null);
       return;
     }
     const { lat, lon } = lonLatFromClient(e.clientX, e.clientY);
+    const city = nearestCity(lat, lon);
+    const near =
+      city && cityDistanceDeg(city, lat, lon) <= COUNTRY_HOVER_MAX_DEG ? city : null;
+    const country = near?.country || null;
+    setHoveredCountry(country);
     hoverHandler({
-      city: nearestCity(lat, lon),
+      city: near,
+      country,
+      cities: citiesInCountry(country),
       lat,
       lon,
       clientX: e.clientX,
@@ -1110,6 +1207,8 @@ export function createWorldMap() {
     e.preventDefault();
     resetView();
   });
+
+  syncSeas();
 
   return { el: root, update, setPickMode, setDroppedPins, setDroppedPinClickHandler, setHoverHandler, setVisibleCitiesHandler };
 }

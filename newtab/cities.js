@@ -145,10 +145,23 @@ export const ALL_CITIES = [...byId.values()];
 /** Map gazetteer: every real city, ranked for zoom. */
 export const MAP_CITIES = ALL_CITIES.filter((c) => c.id !== "utc");
 
+const citiesByCountry = new Map();
+for (const city of MAP_CITIES) {
+  const list = citiesByCountry.get(city.country);
+  if (list) list.push(city);
+  else citiesByCountry.set(city.country, [city]);
+}
+
+/** Every catalogue city for a country name (exact match). */
+export function citiesInCountry(country) {
+  if (!country) return [];
+  return citiesByCountry.get(country) || [];
+}
+
 export const CITY_REGIONS = ["Americas", "Europe", "Africa", "Asia", "Oceania", "Reference"];
 
-/** Lowest zoom at which a rank is drawn. */
-export const RANK_MIN_ZOOM = { 1: 1, 2: 1.55, 3: 2.4, 4: 3.7, 5: 5.2 };
+/** Lowest zoom at which a rank is drawn. Capitals never use world view (1). */
+export const RANK_MIN_ZOOM = { 1: 1.55, 2: 1.55, 3: 2.4, 4: 3.7, 5: 5.2 };
 
 /** Capitals unlock one zoom level earlier than their catalogue rank. */
 export function mapRank(city) {
