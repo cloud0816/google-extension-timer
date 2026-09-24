@@ -749,8 +749,8 @@ export function createWorldMap() {
 
   /** How many cities to reveal for a hovered country at the current zoom. */
   function countryHoverBudget() {
-    // World view: capital + up to 2 more.
-    if (zoom < 1.55) return 3;
+    // World view: capital only.
+    if (zoom < 1.55) return 1;
     if (zoom < 2.4) return 6;
     if (zoom < 3.7) return 10;
     if (zoom < 5.2) return 16;
