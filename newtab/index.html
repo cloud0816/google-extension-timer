@@ -243,11 +243,28 @@
             </div>
 
             <form class="form" id="worldForm">
+              <div class="field grow city-picker" id="worldCityPicker">
+                <span>Add a location</span>
+                <div class="city-combo">
+                  <input
+                    type="search"
+                    id="worldCitySearch"
+                    placeholder="Search city, country, or timezone"
+                    autocomplete="off"
+                    autocorrect="off"
+                    spellcheck="false"
+                    enterkeyhint="go"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded="false"
+                    aria-controls="worldCityResults"
+                    aria-haspopup="listbox"
+                    aria-label="Search city, country, or timezone"
+                  />
+                  <ul class="city-results" id="worldCityResults" role="listbox" hidden></ul>
+                </div>
+              </div>
               <div class="field-row">
-                <label class="field grow">
-                  <span>Add a city</span>
-                  <select id="worldCitySelect"></select>
-                </label>
                 <label class="field">
                   <span>Clock format</span>
                   <select id="worldFormat">
@@ -272,15 +289,17 @@
                   </select>
                 </label>
               </div>
-              <button type="submit" class="btn primary">Add city</button>
+              <button type="submit" class="btn primary" id="worldAddBtn">Add city</button>
             </form>
 
             <ul class="list" id="worldList"></ul>
             <p class="hint">
-              Cities you add here always stay labeled on the map, with local time and
-              weather. Zoom in to reveal more places; zoom out to hide the extras.
-              Text stays the same size. Scrub the hour ruler at the bottom, or hold
-              Ctrl and press ← / →, to shift time by an hour; add Shift to jump a day.
+              Search by city, country, or timezone — for example Tokyo, Japan, or
+              UTC+9. Cities you add here always stay labeled on the map, with local
+              time and weather. Zoom in to reveal more places; zoom out to hide the
+              extras. Text stays the same size. Scrub the hour ruler at the bottom,
+              or hold Ctrl and press ← / →, to shift time by an hour; add Shift to
+              jump a day.
             </p>
             <p class="hint" id="worldWeatherStatus"></p>
             <p class="hint" id="worldDisasterStatus"></p>

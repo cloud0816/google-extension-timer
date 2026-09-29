@@ -513,6 +513,7 @@ html[data-theme="dark"] .tab.active {
 }
 
 .field input[type="text"],
+.field input[type="search"],
 .field input[type="date"],
 .field input[type="time"],
 .field input[type="number"] {
@@ -836,6 +837,7 @@ html:not([data-theme="dark"]) .btn.primary {
   --map-time: #0b6a62;
   --map-pin-day: #f59e0b;
   --map-pin-night: #6366f1;
+  --map-pin-capital: #0f766e;
   --map-scrim: linear-gradient(
     180deg,
     rgba(232, 236, 239, 0.84) 0%,
@@ -860,6 +862,7 @@ html[data-theme="dark"] {
   --map-time: #7fd1f5;
   --map-pin-day: #fbbf24;
   --map-pin-night: #a5b4fc;
+  --map-pin-capital: #2dd4bf;
   --map-scrim: linear-gradient(
     180deg,
     rgba(10, 14, 22, 0.82) 0%,
@@ -1304,6 +1307,55 @@ html[data-theme="dark"] .wm-idl-label {
   fill: #9ca3af;
 }
 
+.wm-seas {
+  pointer-events: none;
+}
+
+.wm-sea.is-hidden {
+  display: none;
+}
+
+.wm-sea-label {
+  fill: #3d6a8a;
+  font-family: var(--font);
+  font-size: 2.85px;
+  font-weight: 600;
+  font-style: italic;
+  letter-spacing: 0.12px;
+  paint-order: stroke fill;
+  stroke: var(--map-label-halo);
+  stroke-width: 0.75;
+  stroke-linejoin: round;
+  opacity: 0.78;
+}
+
+.wm-sea-label.is-ocean {
+  font-size: 4.1px;
+  font-weight: 700;
+  letter-spacing: 0.55px;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+html[data-theme="dark"] .wm-sea-label {
+  fill: #8eb6d4;
+  opacity: 0.7;
+}
+
+html[data-theme="dark"] .wm-sea-label.is-ocean {
+  fill: #a8c8e0;
+  opacity: 0.65;
+}
+
+.world-map.is-nautical .wm-sea-label {
+  fill: #1f4d6a;
+  opacity: 0.85;
+}
+
+html[data-theme="dark"] .world-map.is-nautical .wm-sea-label {
+  fill: #9ec4dc;
+}
+
 .wm-ocean {
   fill: var(--map-ocean);
 }
@@ -1348,10 +1400,23 @@ html[data-theme="dark"] .wm-idl-label {
   opacity: 0.45;
 }
 
+.wm-pin.is-capital .wm-pin-halo {
+  fill: var(--map-pin-capital);
+  opacity: 0.42;
+}
+
 .wm-pin-dot {
   fill: var(--map-label);
   stroke: var(--map-label-halo);
   stroke-width: 0.35;
+}
+
+.wm-pin.is-capital .wm-pin-dot {
+  fill: var(--map-pin-capital);
+}
+
+.wm-pin.is-capital .wm-pin-name {
+  fill: var(--map-pin-capital);
 }
 
 .wm-pin-name,
@@ -1390,7 +1455,33 @@ html[data-theme="dark"] .wm-idl-label {
   opacity: 0.42;
 }
 
+.wm-gaz.is-capital .wm-gaz-halo {
+  fill: var(--map-pin-capital);
+  opacity: 0.3;
+}
+
+.wm-gaz.is-capital.is-watched .wm-gaz-halo {
+  opacity: 0.5;
+}
+
 .wm-gaz-dot {
+  fill: var(--map-label);
+}
+
+.wm-gaz.is-capital .wm-gaz-dot {
+  fill: var(--map-pin-capital);
+}
+
+.wm-gaz.is-capital .wm-gaz-name {
+  fill: var(--map-pin-capital);
+}
+
+.wm-gaz.is-country-hover .wm-gaz-halo {
+  fill: var(--map-pin-day);
+  opacity: 0.34;
+}
+
+.wm-gaz.is-country-hover .wm-gaz-dot {
   fill: var(--map-label);
 }
 
@@ -1568,6 +1659,78 @@ html[data-theme="dark"] .wm-idl-label {
 .field select:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.city-picker {
+  margin-bottom: 0.85rem;
+}
+
+.city-combo {
+  position: relative;
+}
+
+.city-combo input {
+  width: 100%;
+  appearance: none;
+}
+
+.city-combo input::-webkit-search-decoration {
+  -webkit-appearance: none;
+}
+
+.city-combo input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.city-results {
+  position: fixed;
+  z-index: 30;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  max-height: min(16.5rem, 42vh);
+  overflow: auto;
+  background: var(--bg-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+
+.city-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.city-result:hover,
+.city-result.is-active {
+  background: var(--accent-soft);
+}
+
+.city-result-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.city-result-meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.city-results-empty {
+  padding: 0.7rem 0.65rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .toggle-row {
