@@ -164,6 +164,11 @@ export function citiesInCountry(country) {
   return citiesByCountry.get(country) || [];
 }
 
+/** National capital for a country name, if the catalogue has one. */
+export function capitalOfCountry(country) {
+  return citiesInCountry(country).find((city) => city.capital) || null;
+}
+
 export const CITY_REGIONS = ["Americas", "Europe", "Africa", "Asia", "Oceania", "Reference"];
 
 /** Lowest zoom at which a rank is drawn. Capitals never use world view (1). */
