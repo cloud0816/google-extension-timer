@@ -6,6 +6,7 @@
 import { LAND_PATH, BORDERS_PATH } from "./world-map-data.js";
 import { subsolarPoint, terminatorPath, daylightPhase } from "./solar.js";
 import { MAP_CITIES, citiesInCountry } from "./cities.js";
+import { COUNTRY_LABELS } from "./country-labels.js";
 import { SEA_LABELS, seaMinZoom } from "./seas.js";
 import { iconSvg } from "./weather.js";
 
@@ -210,6 +211,8 @@ const MAP_W = 360;
 const MAP_H = 180;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
+/** Deep zoom: label every in-view capital with its country name. */
+const COUNTRY_LABEL_ZOOM = 6;
 const WEATHER_ICON_SIZE = 3.15;
 const WEATHER_ICON_GAP = 0.5;
 
@@ -443,6 +446,30 @@ export function createWorldMap() {
   });
   root.appendChild(seasLayer);
 
+  const countryLayer = svg("g", { class: "wm-countries" });
+  const countryNodes = COUNTRY_LABELS.map((place) => {
+    const g = svg("g", { class: "wm-country is-hidden" });
+    const name = svg("text", {
+      class: "wm-country-name",
+      "text-anchor": "middle",
+      y: place.capital ? "-1.5" : "0.4",
+    });
+    name.textContent = place.country;
+    const capital = svg("text", {
+      class: "wm-country-capital",
+      "text-anchor": "middle",
+      y: "2.6",
+    });
+    capital.textContent = place.capital;
+    if (!place.capital) capital.setAttribute("display", "none");
+    const title = svg("title");
+    title.textContent = place.capital ? `${place.country} · ${place.capital}` : place.country;
+    g.append(title, name, capital);
+    countryLayer.appendChild(g);
+    return { place, group: g, name, capital };
+  });
+  root.appendChild(countryLayer);
+
   const compass = svg("g", { class: "wm-compass", transform: "translate(58 128)" });
   compass.appendChild(svg("circle", { class: "wm-compass-disk", r: 11.4 }));
   compass.appendChild(svg("circle", { class: "wm-compass-ring", r: 10 }));
@@ -517,6 +544,7 @@ export function createWorldMap() {
     vy = Math.min(Math.max(0, vy), MAP_H - h);
     root.setAttribute("viewBox", `${vx} ${vy} ${w} ${h}`);
     syncSeas();
+    syncCountryLabels();
     syncGazetteer();
     if (dropLayer.dataset.zoom !== String(zoom)) {
       dropLayer.dataset.zoom = String(zoom);
@@ -544,6 +572,43 @@ export function createWorldMap() {
       group.setAttribute(
         "transform",
         `translate(${x.toFixed(2)} ${y.toFixed(2)}) scale(${scale.toFixed(4)}) rotate(${rot})`
+      );
+    }
+  }
+
+  function pointInView(x, y, pad = 4) {
+    const { w, h } = viewSize();
+    return x >= vx - pad && x <= vx + w + pad && y >= vy - pad && y <= vy + h + pad;
+  }
+
+  function countryLabelAnchor(place) {
+    const x = projectX(place.lon);
+    const y = projectY(place.lat);
+    if (pointInView(x, y)) return { x, y };
+
+    const cities = citiesInCountry(place.country).filter(cityInView);
+    if (!cities.length) return null;
+
+    let sx = 0;
+    let sy = 0;
+    for (const city of cities) {
+      sx += projectX(city.lon);
+      sy += projectY(city.lat);
+    }
+    return { x: sx / cities.length, y: sy / cities.length };
+  }
+
+  function syncCountryLabels() {
+    const scale = 1 / zoom;
+    const showAll = atMaxZoom();
+    for (const { place, group } of countryNodes) {
+      const anchor = showAll ? countryLabelAnchor(place) : null;
+      const show = Boolean(anchor);
+      group.classList.toggle("is-hidden", !show);
+      if (!show) continue;
+      group.setAttribute(
+        "transform",
+        `translate(${anchor.x.toFixed(2)} ${anchor.y.toFixed(2)}) scale(${scale.toFixed(4)})`
       );
     }
   }
@@ -747,6 +812,10 @@ export function createWorldMap() {
   /** When zoomed, add this many capitals from countries nearest the map center. */
   const CENTER_COUNTRY_CAPITALS = 3;
 
+  function atMaxZoom() {
+    return zoom >= COUNTRY_LABEL_ZOOM;
+  }
+
   /** How many cities to reveal for a hovered country at the current zoom. */
   function countryHoverBudget() {
     // World view: capital only.
@@ -800,8 +869,8 @@ export function createWorldMap() {
       seen.add(city.id);
     }
 
-    // When zoomed: add 3 capitals from countries nearest the map center.
-    if (zoomedIn) {
+    // When zoomed (not max): add 3 capitals from countries nearest the map center.
+    if (zoomedIn && !atMaxZoom()) {
       const nearestByCountry = new Map();
       for (const city of MAP_CITIES) {
         if (!city.capital || !cityInView(city) || seen.has(city.id)) continue;
